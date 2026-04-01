@@ -24,14 +24,14 @@ def client():
 
 class TestCalculateCalories:
     def test_fl_reference_weight(self):
-        """At the 80 kg reference, result equals the program base target."""
-        assert calculate_calories(80, "FL") == PROGRAMS["FL"]["calorie_target"]
+        """At the 80 kg reference, check against calorie factor."""
+        assert calculate_calories(80, "FL") == int(80 * PROGRAMS["FL"]["calorie_factor"])
 
     def test_mg_reference_weight(self):
-        assert calculate_calories(80, "MG") == PROGRAMS["MG"]["calorie_target"]
+        assert calculate_calories(80, "MG") == int(80 * PROGRAMS["MG"]["calorie_factor"])
 
     def test_bg_reference_weight(self):
-        assert calculate_calories(80, "BG") == PROGRAMS["BG"]["calorie_target"]
+        assert calculate_calories(80, "BG") == int(80 * PROGRAMS["BG"]["calorie_factor"])
 
     def test_heavier_client_gets_more_calories(self):
         light = calculate_calories(60, "MG")
@@ -191,4 +191,4 @@ class TestCaloriesRoute:
     def test_mg_program(self, client):
         response = client.get("/calories?weight=80&program=MG")
         data = response.get_json()
-        assert data["estimated_daily_calories"] == PROGRAMS["MG"]["calorie_target"]
+        assert data["estimated_daily_calories"] == int(80 * PROGRAMS["MG"]["calorie_factor"])

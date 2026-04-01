@@ -27,7 +27,7 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness is a functional fitness gym management system. The service provides functionalities to view available fitness programs, register clients, recommend programs based on goals, and dynamically calculate daily calorie targets based on the client's weight and program.
+ACEest Fitness (Version 1.1) is a functional fitness gym management system. The service provides functionalities to view available fitness programs, register clients, recommend programs based on goals, and dynamically calculate daily calorie targets based on the client's weight and program.
 
 **Available Programs:**
 - **FL (Fat Loss):** Focused on weight reduction with a mix of strength and conditioning.
@@ -94,12 +94,12 @@ Containerize the application using Docker to ensure a consistent environment acr
 
 1. **Build the Docker Image:**
    ```bash
-   docker build -t aceest-gym:latest .
+   docker build -t aceest-fitness-app:1.1.0 .
    ```
 
 2. **Run the Container:**
    ```bash
-   docker run -d -p 5000:5000 --name aceest aceest-gym:latest
+   docker run -d -p 5000:5000 --name aceest aceest-fitness-app:1.1.0
    ```
 
 3. **Stop the Container:**
@@ -121,7 +121,7 @@ pytest tests/ -v
 
 **Run tests inside the Docker container:**
 ```bash
-docker run --rm aceest-gym:latest pytest tests/ -v
+docker run --rm aceest-fitness-app:1.1.0 pytest tests/ -v
 ```
 
 ---
@@ -149,7 +149,7 @@ Jenkins serves as an independent build server, acting as a secondary validation 
 3. Execute shell steps to build and validate:
    ```bash
    pip install -r requirements.txt
-   docker build -t aceest-gym:latest .
+   docker build -t aceest-fitness-app:1.1.0 .
    ```
 
 ---
