@@ -1,10 +1,11 @@
 """
-Pytest suite for ACEest Fitness & Gym Flask API (v1).
-Covers: utility functions, all four route responses, and edge-case validation.
+Pytest suite for ACEest Fitness & Gym Flask API (v1.1.2).
+Covers: utility functions, all route responses, client management,
+CSV export, chart data, and edge-case validation.
 """
 
 import pytest
-from app import app, calculate_calories, recommend_program, PROGRAMS
+from app import app, calculate_calories, recommend_program, PROGRAMS, clients
 
 
 # ---------------------------------------------------------------------------
@@ -16,6 +17,14 @@ def client():
     app.config["TESTING"] = True
     with app.test_client() as c:
         yield c
+
+
+@pytest.fixture(autouse=True)
+def clear_clients():
+    """Reset the in-memory client store between tests."""
+    clients.clear()
+    yield
+    clients.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -115,7 +124,7 @@ class TestProgramsRoute:
 
 
 # ---------------------------------------------------------------------------
-# Route tests — POST /client
+# Route tests — POST /client (v1.1.2: now accepts notes & adherence)
 # ---------------------------------------------------------------------------
 
 class TestClientRoute:
@@ -157,6 +166,102 @@ class TestClientRoute:
         data = response.get_json()
         assert "workout" in data
         assert "diet" in data
+
+    def test_client_with_notes_and_adherence(self, client):
+        """v1.1.2 feature: coach notes and weekly adherence tracking."""
+        response = client.post(
+            "/client",
+            json={
+                "name": "Karthik",
+                "goal": "fat loss",
+                "age": 28,
+                "weight": 82,
+                "adherence": 75,
+                "notes": "Focus on consistency",
+            },
+        )
+        assert response.status_code == 201
+        data = response.get_json()
+        assert data["adherence"] == 75
+        assert data["notes"] == "Focus on consistency"
+
+    def test_client_stored_in_list(self, client):
+        """v1.1.2 feature: clients are persisted in the in-memory list."""
+        client.post("/client", json={"name": "Meena", "goal": "bulk up"})
+        assert len(clients) == 1
+        assert clients[0]["name"] == "Meena"
+
+    def test_default_adherence_is_zero(self, client):
+        """When adherence is omitted it should default to 0."""
+        response = client.post(
+            "/client",
+            json={"name": "Deepa", "goal": "general fitness"},
+        )
+        data = response.get_json()
+        assert data["adherence"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Route tests — GET /clients (v1.1.2: multi-client list)
+# ---------------------------------------------------------------------------
+
+class TestClientsListRoute:
+    def test_empty_list(self, client):
+        response = client.get("/clients")
+        assert response.status_code == 200
+        assert response.get_json() == []
+
+    def test_lists_registered_clients(self, client):
+        client.post("/client", json={"name": "A", "goal": "fat loss"})
+        client.post("/client", json={"name": "B", "goal": "muscle gain"})
+        response = client.get("/clients")
+        data = response.get_json()
+        assert len(data) == 2
+        assert data[0]["name"] == "A"
+        assert data[1]["name"] == "B"
+
+
+# ---------------------------------------------------------------------------
+# Route tests — GET /clients/export (v1.1.2: CSV export)
+# ---------------------------------------------------------------------------
+
+class TestExportCSV:
+    def test_export_empty_returns_404(self, client):
+        response = client.get("/clients/export")
+        assert response.status_code == 404
+
+    def test_export_csv_content(self, client):
+        client.post("/client", json={
+            "name": "Ravi", "goal": "fat loss",
+            "age": 30, "weight": 75, "adherence": 80, "notes": "Good progress",
+        })
+        response = client.get("/clients/export")
+        assert response.status_code == 200
+        assert response.content_type == "text/csv; charset=utf-8"
+        text = response.data.decode()
+        assert "Name" in text
+        assert "Ravi" in text
+
+
+# ---------------------------------------------------------------------------
+# Route tests — GET /clients/chart-data (v1.1.2: progress chart)
+# ---------------------------------------------------------------------------
+
+class TestChartData:
+    def test_empty_chart_data(self, client):
+        response = client.get("/clients/chart-data")
+        data = response.get_json()
+        assert data["names"] == []
+        assert data["adherence"] == []
+
+    def test_chart_data_after_registration(self, client):
+        client.post("/client", json={
+            "name": "Vimal", "goal": "muscle gain", "adherence": 90,
+        })
+        response = client.get("/clients/chart-data")
+        data = response.get_json()
+        assert data["names"] == ["Vimal"]
+        assert data["adherence"] == [90]
 
 
 # ---------------------------------------------------------------------------
