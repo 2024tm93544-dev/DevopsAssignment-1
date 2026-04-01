@@ -1,0 +1,42 @@
+name: ACEest CI/CD Pipeline
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  build-test-and-dockerize:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Stage 1 - Build & Lint (Install dependencies and Flake8)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          # Compile check - verify Python files parse without errors
+          python -m py_compile app.py
+          echo "Compilation successful"
+          # Stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings.
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Stage 2 - Docker Image Assembly
+        run: |
+          docker build -t aceest-gym:${{ github.sha }} -t aceest-gym:latest .
+
+      - name: Stage 3 - Automated Testing inside Docker
+        # We run pytest inside the container we just built to ensure the containerized environment is stable
+        run: |
+          docker run --rm aceest-gym:${{ github.sha }} pytest tests/ -v
