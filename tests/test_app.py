@@ -380,7 +380,7 @@ class TestV3Features:
         assert len(data["schedule"]) == 3
 
     def test_export_pdf(self, client):
-        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) \u2013 3 day"})
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
         response = client.get("/export_pdf/Ravi")
         assert response.status_code == 200
         assert response.headers["Content-Type"] == "application/pdf"
