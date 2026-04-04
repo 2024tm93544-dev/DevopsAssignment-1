@@ -6,6 +6,8 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from datetime import datetime
+import random
+from fpdf import FPDF
 
 app = Flask(__name__)
 
@@ -35,9 +37,22 @@ def init_db():
     conn = get_db()
     cur = conn.cursor()
     
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE,
+            password TEXT,
+            role TEXT
+        )
+    """)
+    cur.execute(
+        "INSERT OR IGNORE INTO users (username, password, role) "
+        "VALUES ('admin','admin','Admin')"
+    )
+    
     cur.execute("PRAGMA table_info(clients)")
     cols = [row[1] for row in cur.fetchall()]
-    required = {"id", "name", "age", "height", "weight", "program", "calories", "target_weight", "target_adherence"}
+    required = {"id", "name", "age", "height", "weight", "program", "calories", "target_weight", "target_adherence", "membership_expiry"}
     if not required.issubset(set(cols)):
         cur.execute("DROP TABLE IF EXISTS clients")
 
@@ -51,7 +66,8 @@ def init_db():
             program TEXT,
             calories INTEGER,
             target_weight REAL,
-            target_adherence INTEGER
+            target_adherence INTEGER,
+            membership_expiry TEXT
         )
     """)
     cur.execute("""
@@ -137,7 +153,7 @@ INDEX_HTML = """
     </style>
 </head>
 <body>
-    <header><h1>ACEest Functional Fitness System v3.0.1</h1></header>
+    <header><h1>ACEest Functional Fitness System v3.1.2</h1></header>
     <main>
         <h2>Available Programs</h2>
         <div class="programs">
@@ -152,7 +168,7 @@ INDEX_HTML = """
         {% if clients %}
         <h2>Client List</h2>
         <table>
-            <tr><th>Name</th><th>Age</th><th>Height</th><th>Weight</th><th>Program</th><th>Calories</th><th>Target Wt</th><th>Target Adh</th></tr>
+            <tr><th>Name</th><th>Age</th><th>Height</th><th>Weight</th><th>Program</th><th>Calories</th><th>Target Wt</th><th>Target Adh</th><th>Membership Expiry</th></tr>
             {% for c in clients %}
             <tr>
                 <td>{{ c.name }}</td>
@@ -163,6 +179,7 @@ INDEX_HTML = """
                 <td>{{ c.calories or '-' }} kcal/day</td>
                 <td>{{ c.target_weight or '-' }} kg</td>
                 <td>{{ c.target_adherence or '-' }}%</td>
+                <td>{{ c.membership_expiry or '-' }}</td>
             </tr>
             {% endfor %}
         </table>
@@ -191,6 +208,25 @@ def get_programs():
     return jsonify(PROGRAMS)
 
 
+@app.route("/login", methods=["POST"])
+def login():
+    data = request.get_json(silent=True) or {}
+    username = data.get("username", "").strip()
+    password = data.get("password", "").strip()
+
+    if not username or not password:
+        return jsonify({"error": "username and password are required"}), 400
+
+    conn = get_db()
+    row = conn.execute("SELECT id, role FROM users WHERE username=? AND password=?", (username, password)).fetchone()
+    conn.close()
+
+    if row:
+        return jsonify({"message": "Login successful", "role": row["role"], "user_id": row["id"]}), 200
+    else:
+        return jsonify({"error": "Invalid credentials"}), 401
+
+
 @app.route("/client", methods=["POST"])
 def register_client():
     data = request.get_json(silent=True) or {}
@@ -201,6 +237,7 @@ def register_client():
     target_weight = data.get("target_weight")
     target_adherence = data.get("target_adherence")
     program_key = data.get("program", "").strip()
+    membership_expiry = data.get("membership_expiry", "").strip()
 
     if not name:
         return jsonify({"error": "name is required"}), 400
@@ -213,9 +250,9 @@ def register_client():
 
     conn = get_db()
     conn.execute("""
-        INSERT OR REPLACE INTO clients (name, age, height, weight, program, calories, target_weight, target_adherence)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (name, age, height, weight, program_key, calories, target_weight, target_adherence))
+        INSERT OR REPLACE INTO clients (name, age, height, weight, program, calories, target_weight, target_adherence, membership_expiry)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (name, age, height, weight, program_key, calories, target_weight, target_adherence, membership_expiry))
     conn.commit()
     conn.close()
 
@@ -228,6 +265,7 @@ def register_client():
         "calories": calories,
         "target_weight": target_weight,
         "target_adherence": target_adherence,
+        "membership_expiry": membership_expiry,
     }), 201
 
 
@@ -250,6 +288,7 @@ def load_client(name):
         "calories": row["calories"],
         "target_weight": row["target_weight"],
         "target_adherence": row["target_adherence"],
+        "membership_expiry": row["membership_expiry"],
     })
 
 
@@ -497,6 +536,106 @@ def get_bmi():
         "category": category,
         "risk": risk
     })
+
+
+@app.route("/ai_program", methods=["POST"])
+def generate_ai_program():
+    data = request.get_json(silent=True) or {}
+    client_name = data.get("client_name", "").strip()
+    exp_level = data.get("experience_level", "").strip().lower()
+
+    if not client_name:
+        return jsonify({"error": "client_name is required"}), 400
+    if not exp_level or exp_level not in ["beginner", "intermediate", "advanced"]:
+        return jsonify({"error": "experience_level must be beginner, intermediate, or advanced"}), 400
+
+    conn = get_db()
+    row = conn.execute("SELECT program FROM clients WHERE name=?", (client_name,)).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": f"client '{client_name}' not found"}), 404
+        
+    program_name = row["program"]
+
+    exercises_pool = {
+        "Strength": ["Squat", "Deadlift", "Bench Press", "Overhead Press", "Pull-Up", "Barbell Row"],
+        "Hypertrophy": ["Leg Press", "Incline Dumbbell Press", "Lat Pulldown", "Lateral Raise", "Bicep Curl", "Tricep Extension"],
+        "Conditioning": ["Running", "Cycling", "Rowing", "Burpees", "Jump Rope", "Kettlebell Swings"],
+        "Full Body": ["Push-Up", "Pull-Up", "Lunge", "Plank", "Dumbbell Row", "Dumbbell Press"],
+    }
+
+    focus = "Full Body"
+    if "Fat Loss" in program_name:
+        focus = "Conditioning"
+    elif "Muscle Gain" in program_name:
+        focus = "Hypertrophy"
+
+    if exp_level == "beginner":
+        sets_range = (2, 3)
+        reps_range = (8, 12)
+        days = 3
+    elif exp_level == "intermediate":
+        sets_range = (3, 4)
+        reps_range = (8, 15)
+        days = 4
+    else:
+        sets_range = (4, 5)
+        reps_range = (6, 15)
+        days = 5
+
+    weekly_days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"][:days]
+    schedule = []
+
+    for day in weekly_days:
+        exercises = random.sample(exercises_pool[focus], k=3 if days < 4 else 4)
+        day_plan = []
+        for ex in exercises:
+            day_plan.append({
+                "exercise": ex,
+                "sets": random.randint(*sets_range),
+                "reps": random.randint(*reps_range)
+            })
+        schedule.append({"day": day, "routines": day_plan})
+
+    return jsonify({
+        "client_name": client_name,
+        "experience_level": exp_level,
+        "focus": focus,
+        "schedule": schedule
+    }), 200
+
+
+@app.route("/export_pdf/<client_name>")
+def export_pdf(client_name):
+    conn = get_db()
+    row = conn.execute("SELECT * FROM clients WHERE name=?", (client_name,)).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": f"client '{client_name}' not found"}), 404
+
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", "B", 16)
+    pdf.cell(0, 10, f"Client Report - {client_name}", ln=True, align="C")
+    pdf.set_font("Arial", "", 12)
+    
+    pdf.ln(10)
+    pdf.cell(0, 10, f"Name: {row['name']}", ln=True)
+    pdf.cell(0, 10, f"Age: {row['age'] or '-'}", ln=True)
+    pdf.cell(0, 10, f"Height: {row['height'] or '-'} cm", ln=True)
+    pdf.cell(0, 10, f"Weight: {row['weight'] or '-'} kg", ln=True)
+    pdf.cell(0, 10, f"Program: {row['program']}", ln=True)
+    pdf.cell(0, 10, f"Membership Expiry: {row['membership_expiry'] or '-'}", ln=True)
+    
+    pdf_bytes = pdf.output(dest='S').encode('latin1')
+    
+    return Response(
+        pdf_bytes,
+        mimetype="application/pdf",
+        headers={"Content-disposition": f"attachment; filename={client_name}_report.pdf"}
+    )
 
 
 if __name__ == "__main__":

@@ -110,6 +110,27 @@ class TestProgramsRoute:
 
 
 # ---------------------------------------------------------------------------
+# Route tests — POST /login
+# ---------------------------------------------------------------------------
+
+class TestLoginRoute:
+    def test_valid_login(self, client):
+        response = client.post("/login", json={"username": "admin", "password": "admin"})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["message"] == "Login successful"
+        assert data["role"] == "Admin"
+
+    def test_invalid_login(self, client):
+        response = client.post("/login", json={"username": "admin", "password": "wrong"})
+        assert response.status_code == 401
+        assert b"Invalid credentials" in response.data
+
+    def test_missing_credentials(self, client):
+        response = client.post("/login", json={"username": "admin"})
+        assert response.status_code == 400
+
+# ---------------------------------------------------------------------------
 # Route tests — POST /client (v3.0.1 updates)
 # ---------------------------------------------------------------------------
 
@@ -185,7 +206,7 @@ class TestClientRoute:
 class TestLoadClient:
     def test_load_existing_client(self, client):
         client.post("/client", json={
-            "name": "Ravi", "program": "Fat Loss (FL) – 3 day", "age": 30, "weight": 75, "height": 180
+            "name": "Ravi", "program": "Fat Loss (FL) – 3 day", "age": 30, "weight": 75, "height": 180, "membership_expiry": "2026-12-31"
         })
         response = client.get("/client/Ravi")
         assert response.status_code == 200
@@ -194,6 +215,7 @@ class TestLoadClient:
         assert data["age"] == 30
         assert data["height"] == 180
         assert data["calories"] == int(75 * PROGRAMS["Fat Loss (FL) – 3 day"]["factor"])
+        assert data["membership_expiry"] == "2026-12-31"
 
     def test_load_missing_client(self, client):
         response = client.get("/client/Nobody")
@@ -348,3 +370,18 @@ class TestV3Features:
         data = response.get_json()
         assert "bmi" in data
         assert data["bmi"] == round(80 / (1.8 * 1.8), 1)
+
+    def test_generate_ai_program(self, client):
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
+        response = client.post("/ai_program", json={"client_name": "Ravi", "experience_level": "beginner"})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["focus"] == "Conditioning"
+        assert len(data["schedule"]) == 3
+
+    def test_export_pdf(self, client):
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
+        response = client.get("/export_pdf/Ravi")
+        assert response.status_code == 200
+        assert response.headers["Content-Type"] == "application/pdf"
+        assert response.headers["Content-Disposition"] == "attachment; filename=Ravi_report.pdf"
