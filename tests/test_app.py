@@ -1,5 +1,5 @@
 """
-Pytest suite for ACEest Fitness & Gym Flask API (v3.0.1).
+Pytest suite for ACEest Fitness & Gym Flask API (v3.2.4).
 Covers: utility functions, all route responses, client management
 with SQLite persistence, progress tracking, workout logging, metrics, BMI,
 and edge-case validation.
@@ -79,7 +79,7 @@ class TestIndexRoute:
 
     def test_version_in_page(self, client):
         response = client.get("/")
-        assert b"v3.1.2" in response.data
+        assert b"v3.2.4" in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ class TestLoginRoute:
         assert response.status_code == 400
 
 # ---------------------------------------------------------------------------
-# Route tests — POST /client (v3.1.2 updates)
+# Route tests — POST /client (v3.0.1 updates)
 # ---------------------------------------------------------------------------
 
 class TestClientRoute:
@@ -206,7 +206,7 @@ class TestClientRoute:
 class TestLoadClient:
     def test_load_existing_client(self, client):
         client.post("/client", json={
-            "name": "Ravi", "program": "Fat Loss (FL) – 3 day", "age": 30, "weight": 75, "height": 180, "membership_expiry": "2026-12-31"
+            "name": "Ravi", "program": "Fat Loss (FL) – 3 day", "age": 30, "weight": 75, "height": 180, "membership_status": "Active", "membership_end": "2026-12-31"
         })
         response = client.get("/client/Ravi")
         assert response.status_code == 200
@@ -215,10 +215,32 @@ class TestLoadClient:
         assert data["age"] == 30
         assert data["height"] == 180
         assert data["calories"] == int(75 * PROGRAMS["Fat Loss (FL) – 3 day"]["factor"])
-        assert data["membership_expiry"] == "2026-12-31"
+        assert data["membership_status"] == "Active"
+        assert data["membership_end"] == "2026-12-31"
 
     def test_load_missing_client(self, client):
         response = client.get("/client/Nobody")
+        assert response.status_code == 404
+        assert b"not found" in response.data
+
+
+# ---------------------------------------------------------------------------
+# Route tests — GET /membership/<name>
+# ---------------------------------------------------------------------------
+
+class TestMembershipRoute:
+    def test_check_membership_existing(self, client):
+        client.post("/client", json={
+            "name": "Ravi", "program": "Fat Loss (FL) – 3 day", "membership_status": "Active", "membership_end": "2026-12-31"
+        })
+        response = client.get("/membership/Ravi")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["membership_status"] == "Active"
+        assert data["membership_end"] == "2026-12-31"
+
+    def test_check_membership_missing(self, client):
+        response = client.get("/membership/Nobody")
         assert response.status_code == 404
         assert b"not found" in response.data
 
@@ -379,9 +401,8 @@ class TestV3Features:
         assert data["focus"] == "Conditioning"
         assert len(data["schedule"]) == 3
 
-
     def test_export_pdf(self, client):
-        client.post("/client", json={"name": "Ravi", "program": "Beginner (BG)"})
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
         response = client.get("/export_pdf/Ravi")
         assert response.status_code == 200
         assert response.headers["Content-Type"] == "application/pdf"

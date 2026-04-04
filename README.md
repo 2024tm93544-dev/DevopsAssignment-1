@@ -27,7 +27,7 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness (Version 3.1.2) is a functional fitness gym management system. Building on previous versions, this release introduces comprehensive workout logging, body metrics tracking, user authentication, a BMI calculator, automated AI program generation, and PDF report creation.
+ACEest Fitness (Version 3.2.4) is a functional fitness gym management system. Building on previous versions, this release introduces comprehensive workout logging, body metrics tracking, user authentication, a BMI calculator, automated AI program generation, and PDF report creation.
 
 **Available Programs:**
 
@@ -36,7 +36,7 @@ ACEest Fitness (Version 3.1.2) is a functional fitness gym management system. Bu
 - **Muscle Gain (MG) – PPL:** Push/Pull/Legs hypertrophy with a calorie factor of 35 kcal/kg.
 - **Beginner (BG):** 3-day simple beginner full-body with a calorie factor of 26 kcal/kg.
 
-**New in v3.1.2:**
+**New in v3.2.4:**
 
 - Support for system users and secure API authentication (`/login`).
 - Membership expiration tracking for all clients.
@@ -109,14 +109,14 @@ Containerize the application using Docker to ensure a consistent environment acr
 1. **Build the Docker Image:**
 
    ```bash
-   docker build -t aceest-fitness-app:3.1.2 .
+   docker build -t aceest-fitness-app:3.2.4 .
    ```
 
 2. **Run the Container (with Persistence):**
    To ensure your client data persists after stopping the container, mount a local directory to `/app/data`:
 
    ```bash
-   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:3.1.2
+   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:3.2.4
    ```
 
 3. **Stop the Container:**
@@ -140,7 +140,7 @@ pytest tests/ -v
 **Run tests inside the Docker container:**
 
 ```bash
-docker run --rm aceest-fitness-app:3.1.2 pytest tests/ -v
+docker run --rm aceest-fitness-app:3.2.4 pytest tests/ -v
 ```
 
 ---
@@ -170,7 +170,7 @@ Jenkins serves as an independent build server, acting as a secondary validation 
 3. Execute shell steps to build and validate:
    ```bash
    pip install -r requirements.txt
-   docker build -t aceest-fitness-app:3.1.2 .
+   docker build -t aceest-fitness-app:3.2.4 .
    ```
 
 ---
@@ -186,6 +186,7 @@ The service provides a simple REST API to interact with the gym's database.
 | `GET`  | `/programs`              | Returns all available fitness programs as JSON                 | N/A                                                                                 |
 | `POST` | `/client`                | Register or update a client with a program                     | `{"name": "Ravi", "program": "Fat Loss (FL) – 3 day", "height": 175, "weight": 75}` |
 | `GET`  | `/client/<name>`         | Load a client profile by name                                  | `/client/Ravi`                                                                      |
+| `GET`  | `/membership/<name>`     | Query a client's membership status and end date                | `/membership/Ravi`                                                                  |
 | `GET`  | `/clients`               | Returns the full client list as JSON                           | N/A                                                                                 |
 | `POST` | `/workouts`              | Log a workout session & exercises                              | `{"client_name": "Ravi", "workout_type": "Strength", "duration_min": 60}`           |
 | `GET`  | `/workouts/<name>`       | Retrieve workout history for a client                          | `/workouts/Ravi`                                                                    |
