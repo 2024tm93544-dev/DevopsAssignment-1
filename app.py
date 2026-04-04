@@ -606,6 +606,12 @@ def generate_ai_program():
     }), 200
 
 
+def safe_text(text):
+    """Ensure text is Latin-1 safe for FPDF."""
+    if text is None:
+        return "-"
+    return str(text).replace("–", "-")
+
 @app.route("/export_pdf/<client_name>")
 def export_pdf(client_name):
     conn = get_db()
@@ -617,24 +623,29 @@ def export_pdf(client_name):
 
     pdf = FPDF()
     pdf.add_page()
+
     pdf.set_font("Arial", "B", 16)
-    pdf.cell(0, 10, f"Client Report - {client_name}", ln=True, align="C")
+    pdf.cell(0, 10, f"Client Report - {safe_text(client_name)}", ln=True, align="C")
+
     pdf.set_font("Arial", "", 12)
-    
     pdf.ln(10)
-    pdf.cell(0, 10, f"Name: {row['name']}", ln=True)
-    pdf.cell(0, 10, f"Age: {row['age'] or '-'}", ln=True)
-    pdf.cell(0, 10, f"Height: {row['height'] or '-'} cm", ln=True)
-    pdf.cell(0, 10, f"Weight: {row['weight'] or '-'} kg", ln=True)
-    pdf.cell(0, 10, f"Program: {row['program']}", ln=True)
-    pdf.cell(0, 10, f"Membership Expiry: {row['membership_expiry'] or '-'}", ln=True)
+
+    pdf.cell(0, 10, f"Name: {safe_text(row['name'])}", ln=True)
+    pdf.cell(0, 10, f"Age: {safe_text(row['age'])}", ln=True)
+    pdf.cell(0, 10, f"Height: {safe_text(row['height'])} cm", ln=True)
+    pdf.cell(0, 10, f"Weight: {safe_text(row['weight'])} kg", ln=True)
+    pdf.cell(0, 10, f"Program: {safe_text(row['program'])}", ln=True)
+    pdf.cell(0, 10, f"Membership Expiry: {safe_text(row['membership_expiry'])}", ln=True)
+
     
-    pdf_bytes = pdf.output(dest='S').encode('latin1')
-    
+    pdf_bytes = pdf.output(dest='S').encode('latin1', errors='replace')
+
     return Response(
         pdf_bytes,
         mimetype="application/pdf",
-        headers={"Content-disposition": f"attachment; filename={client_name}_report.pdf"}
+        headers={
+            "Content-Disposition": f"attachment; filename={client_name}_report.pdf"
+        }
     )
 
 
