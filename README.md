@@ -27,7 +27,7 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness (Version 3.0.1) is a functional fitness gym management system. Building on previous versions, this release introduces comprehensive workout logging, body metrics tracking, and a BMI calculator.
+ACEest Fitness (Version 3.1.2) is a functional fitness gym management system. Building on previous versions, this release introduces comprehensive workout logging, body metrics tracking, user authentication, a BMI calculator, automated AI program generation, and PDF report creation.
 
 **Available Programs:**
 
@@ -36,13 +36,13 @@ ACEest Fitness (Version 3.0.1) is a functional fitness gym management system. Bu
 - **Muscle Gain (MG) – PPL:** Push/Pull/Legs hypertrophy with a calorie factor of 35 kcal/kg.
 - **Beginner (BG):** 3-day simple beginner full-body with a calorie factor of 26 kcal/kg.
 
-**New in v3.0.1:**
+**New in v3.1.2:**
 
-- Support for comprehensive workout and exercise logging (`/workouts`).
-- Advanced body metrics tracking including bodyfat and waist measurements (`/metrics`).
-- BMI & risk calculator endpoint (`/bmi`).
-- Schema expansion to support client height, target weight, and target adherence.
-- Dynamic web interface displaying client goals and program details.
+- Support for system users and secure API authentication (`/login`).
+- Membership expiration tracking for all clients.
+- Automated generation of AI workout schedules (`/ai_program`).
+- Export client data to PDF reports (`/export_pdf`).
+- Web interface dynamically displaying membership details and system improvements.
 
 ---
 
@@ -109,14 +109,14 @@ Containerize the application using Docker to ensure a consistent environment acr
 1. **Build the Docker Image:**
 
    ```bash
-   docker build -t aceest-fitness-app:3.0.1 .
+   docker build -t aceest-fitness-app:3.1.2 .
    ```
 
 2. **Run the Container (with Persistence):**
    To ensure your client data persists after stopping the container, mount a local directory to `/app/data`:
 
    ```bash
-   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:3.0.1
+   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:3.1.2
    ```
 
 3. **Stop the Container:**
@@ -140,7 +140,7 @@ pytest tests/ -v
 **Run tests inside the Docker container:**
 
 ```bash
-docker run --rm aceest-fitness-app:3.0.1 pytest tests/ -v
+docker run --rm aceest-fitness-app:3.1.2 pytest tests/ -v
 ```
 
 ---
@@ -170,7 +170,7 @@ Jenkins serves as an independent build server, acting as a secondary validation 
 3. Execute shell steps to build and validate:
    ```bash
    pip install -r requirements.txt
-   docker build -t aceest-fitness-app:3.0.1 .
+   docker build -t aceest-fitness-app:3.1.2 .
    ```
 
 ---
@@ -182,6 +182,7 @@ The service provides a simple REST API to interact with the gym's database.
 | Method | Endpoint                 | Description                                                    | Example Payload/Query                                                               |
 | ------ | ------------------------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `GET`  | `/`                      | Web interface listing gym programs and client list             | N/A                                                                                 |
+| `POST` | `/login`                 | Authenticate user against system users list                    | `{"username": "admin", "password": "password"}`                                     |
 | `GET`  | `/programs`              | Returns all available fitness programs as JSON                 | N/A                                                                                 |
 | `POST` | `/client`                | Register or update a client with a program                     | `{"name": "Ravi", "program": "Fat Loss (FL) – 3 day", "height": 175, "weight": 75}` |
 | `GET`  | `/client/<name>`         | Load a client profile by name                                  | `/client/Ravi`                                                                      |
@@ -192,6 +193,8 @@ The service provides a simple REST API to interact with the gym's database.
 | `GET`  | `/metrics/<name>`        | Retrieve recorded body metrics history                         | `/metrics/Ravi`                                                                     |
 | `GET`  | `/metrics/chart/<name>`  | Download a generated PNG weight trend chart                    | `/metrics/chart/Ravi`                                                               |
 | `GET`  | `/bmi`                   | Evaluate BMI metrics and health categories                     | `?height=180&weight=80`                                                             |
+| `POST` | `/ai_program`            | Generate an AI fitness schedule for client based on experience | `{"client_name": "Ravi", "experience_level": "beginner"}`                           |
+| `GET`  | `/export_pdf/<name>`     | Export and download a PDF report containing client details     | `/export_pdf/Ravi`                                                                  |
 | `POST` | `/progress`              | Save weekly adherence for a client                             | `{"client_name": "Ravi", "adherence": 85}`                                          |
 | `GET`  | `/progress/<name>`       | Returns all progress entries for a client                      | `/progress/Ravi`                                                                    |
 | `GET`  | `/progress/chart/<name>` | Download a generated PNG adherence progress chart              | `/progress/chart/Ravi`                                                              |
