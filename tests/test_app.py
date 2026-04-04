@@ -79,7 +79,7 @@ class TestIndexRoute:
 
     def test_version_in_page(self, client):
         response = client.get("/")
-        assert b"v3.0.1" in response.data
+        assert b"v3.1.2" in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +131,7 @@ class TestLoginRoute:
         assert response.status_code == 400
 
 # ---------------------------------------------------------------------------
-# Route tests — POST /client (v3.0.1 updates)
+# Route tests — POST /client (v3.1.2 updates)
 # ---------------------------------------------------------------------------
 
 class TestClientRoute:
@@ -380,7 +380,7 @@ class TestV3Features:
         assert len(data["schedule"]) == 3
 
     def test_export_pdf(self, client):
-        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) \u2013 3 day"})
         response = client.get("/export_pdf/Ravi")
         assert response.status_code == 200
         assert response.headers["Content-Type"] == "application/pdf"
