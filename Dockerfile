@@ -11,6 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY tests/ tests/
 
+# Create a data directory for the database and set as volume
+RUN mkdir -p /app/data
+ENV ACEEST_DB=/app/data/aceest_fitness.db
+VOLUME /app/data
+
 # Expose port 5000 for Flask
 EXPOSE 5000
 

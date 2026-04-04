@@ -1,32 +1,17 @@
 from flask import Flask, jsonify, request, render_template_string, Response
-import csv
-import io
+import sqlite3
+import os
+from datetime import datetime
 
 app = Flask(__name__)
 
-# Core data store — translated from ACEest v1.1.2 Tkinter desktop application
+DB_NAME = os.environ.get("ACEEST_DB", "aceest_fitness.db")
+
+# Core data store — translated from ACEest v2.0.1 Tkinter desktop application
 PROGRAMS = {
-    "FL": {
-        "name": "Fat Loss",
-        "workout": "Back Squat, Cardio, Bench, Deadlift, Recovery",
-        "diet": "Egg Whites, Chicken, Fish Curry",
-        "calorie_factor": 22,
-        "color": "#e74c3c",
-    },
-    "MG": {
-        "name": "Muscle Gain",
-        "workout": "Squat, Bench, Deadlift, Press, Rows",
-        "diet": "Eggs, Biryani, Mutton Curry",
-        "calorie_factor": 35,
-        "color": "#2ecc71",
-    },
-    "BG": {
-        "name": "Beginner",
-        "workout": "Air Squats, Ring Rows, Push-ups",
-        "diet": "Balanced Tamil Meals",
-        "calorie_factor": 26,
-        "color": "#3498db",
-    },
+    "FL": {"name": "Fat Loss", "factor": 22},
+    "MG": {"name": "Muscle Gain", "factor": 35},
+    "BG": {"name": "Beginner", "factor": 26},
 }
 
 GYM_METRICS = {
@@ -35,8 +20,67 @@ GYM_METRICS = {
     "break_even_members": 250,
 }
 
-# In-memory client store (mirrors v1.1.2 self.clients list)
-clients = []
+
+# ---------------------------------------------------------------------------
+# Database helpers (mirrors v2.0.1 init_db)
+# ---------------------------------------------------------------------------
+
+def get_db():
+    """Return a new SQLite connection."""
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def init_db():
+    """Create the clients and progress tables if they don't exist."""
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS clients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT UNIQUE,
+            age INTEGER,
+            weight REAL,
+            program TEXT,
+            calories INTEGER
+        )
+    """)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS progress (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            client_name TEXT,
+            week TEXT,
+            adherence INTEGER
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+init_db()
+
+
+# ---------------------------------------------------------------------------
+# Utility functions
+# ---------------------------------------------------------------------------
+
+def calculate_calories(weight_kg, program_key):
+    """Return estimated daily calorie target.
+
+    Uses the program's factor multiplied by body weight.
+    Returns None for unknown programs.
+    """
+    if program_key not in PROGRAMS:
+        return None
+    factor = PROGRAMS[program_key]["factor"]
+    calories = int(weight_kg * factor)
+    return calories
+
+
+# ---------------------------------------------------------------------------
+# HTML template
+# ---------------------------------------------------------------------------
 
 INDEX_HTML = """
 <!DOCTYPE html>
@@ -60,15 +104,14 @@ INDEX_HTML = """
     </style>
 </head>
 <body>
-    <header><h1>ACEest FUNCTIONAL FITNESS SYSTEM v2</h1></header>
+    <header><h1>ACEest FUNCTIONAL FITNESS SYSTEM v2.0.1</h1></header>
     <main>
         <h2>Available Programs</h2>
         <div class="programs">
             {% for key, p in programs.items() %}
             <div class="card">
                 <h2>{{ p.name }} ({{ key }})</h2>
-                <h3>Workout</h3><pre>{{ p.workout }}</pre>
-                <h3>Diet</h3><pre>{{ p.diet }}</pre>
+                <p>Calorie Factor: {{ p.factor }} kcal/kg</p>
             </div>
             {% endfor %}
         </div>
@@ -81,11 +124,11 @@ INDEX_HTML = """
         {% if clients %}
         <h2>Client List</h2>
         <table>
-            <tr><th>Name</th><th>Age</th><th>Weight</th><th>Program</th><th>Adherence</th><th>Notes</th></tr>
+            <tr><th>Name</th><th>Age</th><th>Weight</th><th>Program</th><th>Calories</th></tr>
             {% for c in clients %}
             <tr>
-                <td>{{ c.name }}</td><td>{{ c.age }}</td><td>{{ c.weight_kg }}</td>
-                <td>{{ c.program }}</td><td>{{ c.adherence }}%</td><td>{{ c.notes }}</td>
+                <td>{{ c.name }}</td><td>{{ c.age }}</td><td>{{ c.weight }}</td>
+                <td>{{ c.program }}</td><td>{{ c.calories }} kcal/day</td>
             </tr>
             {% endfor %}
         </table>
@@ -96,37 +139,18 @@ INDEX_HTML = """
 """
 
 
-def calculate_calories(weight_kg, program_key):
-    """Return estimated daily calorie target.
-
-    Uses the program's calorie factor multiplied by body weight.
-    Returns None for unknown programs.
-    """
-    if program_key not in PROGRAMS:
-        return None
-    factor = PROGRAMS[program_key]["calorie_factor"]
-    calories = int(weight_kg * factor)
-    return calories
-
-
-def recommend_program(goal):
-    """Map a free-form goal string to a program key."""
-    goal_lower = goal.lower()
-    if "fat" in goal_lower or "loss" in goal_lower or "cut" in goal_lower:
-        return "FL"
-    if "muscle" in goal_lower or "gain" in goal_lower or "bulk" in goal_lower:
-        return "MG"
-    return "BG"
-
-
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
 @app.route("/")
 def index():
+    conn = get_db()
+    rows = conn.execute("SELECT name, age, weight, program, calories FROM clients").fetchall()
+    conn.close()
+    client_list = [dict(r) for r in rows]
     return render_template_string(INDEX_HTML, programs=PROGRAMS,
-                                  metrics=GYM_METRICS, clients=clients)
+                                  metrics=GYM_METRICS, clients=client_list)
 
 
 @app.route("/programs")
@@ -136,84 +160,105 @@ def get_programs():
 
 @app.route("/client", methods=["POST"])
 def register_client():
+    """Register or update a client (mirrors v2.0.1 save_client)."""
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
-    goal = data.get("goal", "").strip()
     age = data.get("age")
     weight = data.get("weight")
-    adherence = data.get("adherence", 0)
-    notes = data.get("notes", "").strip()
+    program_key = data.get("program", "").strip().upper()
 
     if not name:
         return jsonify({"error": "name is required"}), 400
-    if not goal:
-        return jsonify({"error": "goal is required"}), 400
+    if not program_key:
+        return jsonify({"error": "program is required"}), 400
+    if program_key not in PROGRAMS:
+        return jsonify({"error": f"unknown program '{program_key}'"}), 400
 
-    program_key = recommend_program(goal)
-    program = PROGRAMS[program_key]
+    calories = calculate_calories(weight if weight else 0, program_key)
 
-    # Store client (mirrors v1.1.2 save_client behaviour)
-    client_record = {
-        "name": name,
-        "age": age,
-        "weight_kg": weight,
-        "program": program_key,
-        "program_name": program["name"],
-        "adherence": adherence,
-        "notes": notes,
-        "goal": goal,
-        "workout": program["workout"],
-        "diet": program["diet"],
-    }
-    clients.append(client_record)
+    conn = get_db()
+    conn.execute("""
+        INSERT OR REPLACE INTO clients (name, age, weight, program, calories)
+        VALUES (?, ?, ?, ?, ?)
+    """, (name, age, weight, program_key, calories))
+    conn.commit()
+    conn.close()
 
     return jsonify({
         "client": name,
-        "goal": goal,
-        "recommended_program": program_key,
-        "program_name": program["name"],
-        "workout": program["workout"],
-        "diet": program["diet"],
-        "adherence": adherence,
-        "notes": notes,
+        "age": age,
+        "weight_kg": weight,
+        "program": program_key,
+        "program_name": PROGRAMS[program_key]["name"],
+        "calories": calories,
     }), 201
+
+
+@app.route("/client/<name>")
+def load_client(name):
+    """Load a single client by name (mirrors v2.0.1 load_client)."""
+    conn = get_db()
+    row = conn.execute("SELECT * FROM clients WHERE name=?", (name,)).fetchone()
+    conn.close()
+
+    if not row:
+        return jsonify({"error": f"client '{name}' not found"}), 404
+
+    return jsonify({
+        "id": row["id"],
+        "name": row["name"],
+        "age": row["age"],
+        "weight": row["weight"],
+        "program": row["program"],
+        "calories": row["calories"],
+    })
 
 
 @app.route("/clients")
 def list_clients():
-    """Return the full client list as JSON."""
-    return jsonify(clients)
+    """Return the full client list as JSON (from SQLite)."""
+    conn = get_db()
+    rows = conn.execute("SELECT * FROM clients").fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
-@app.route("/clients/export")
-def export_clients_csv():
-    """Export the client list as a downloadable CSV file."""
-    if not clients:
-        return jsonify({"error": "no clients to export"}), 404
+@app.route("/progress", methods=["POST"])
+def save_progress():
+    """Save weekly adherence for a client (mirrors v2.0.1 save_progress)."""
+    data = request.get_json(silent=True) or {}
+    client_name = data.get("client_name", "").strip()
+    adherence = data.get("adherence", 0)
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Name", "Age", "Weight", "Program", "Adherence", "Notes"])
-    for c in clients:
-        writer.writerow([
-            c["name"], c["age"], c["weight_kg"],
-            c["program"], c["adherence"], c["notes"],
-        ])
+    if not client_name:
+        return jsonify({"error": "client_name is required"}), 400
 
-    return Response(
-        output.getvalue(),
-        mimetype="text/csv",
-        headers={"Content-Disposition": "attachment; filename=clients.csv"},
-    )
+    week = datetime.now().strftime("Week %U - %Y")
 
+    conn = get_db()
+    conn.execute("""
+        INSERT INTO progress (client_name, week, adherence)
+        VALUES (?, ?, ?)
+    """, (client_name, week, adherence))
+    conn.commit()
+    conn.close()
 
-@app.route("/clients/chart-data")
-def chart_data():
-    """Return adherence data for charting (mirrors v1.1.2 progress chart)."""
     return jsonify({
-        "names": [c["name"] for c in clients],
-        "adherence": [c["adherence"] for c in clients],
-    })
+        "client_name": client_name,
+        "week": week,
+        "adherence": adherence,
+    }), 201
+
+
+@app.route("/progress/<client_name>")
+def get_progress(client_name):
+    """Return all progress entries for a given client."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT * FROM progress WHERE client_name=?", (client_name,)
+    ).fetchall()
+    conn.close()
+    return jsonify([dict(r) for r in rows])
 
 
 @app.route("/calories")
