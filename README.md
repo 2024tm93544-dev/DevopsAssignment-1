@@ -27,30 +27,38 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness (Version 2.2.1) is a functional fitness gym management system. Building on v2.1.2, this release introduces weekly progress chart generation using matplotlib.
+ACEest Fitness (Version 2.2.4) is a functional fitness gym management system. Building on v2.2.1, this release introduces workout session logging, body metric tracking, weight trend charts, BMI analysis, and expanded program options.
 
 **Available Programs:**
 
-- **Fat Loss (FL):** Focused on weight reduction with a calorie factor of 22 kcal/kg.
-- **Muscle Gain (MG):** Hypertrophy and strength-focused routines with a calorie factor of 35 kcal/kg.
-- **Beginner (BG):** Circuit training and technique mastery with a calorie factor of 26 kcal/kg.
+- **Fat Loss (FL) – 3 day:** 3-day full-body fat loss with a calorie factor of 22 kcal/kg.
+- **Fat Loss (FL) – 5 day:** 5-day split, higher volume fat loss with a calorie factor of 24 kcal/kg.
+- **Muscle Gain (MG) – PPL:** Push/Pull/Legs hypertrophy with a calorie factor of 35 kcal/kg.
+- **Beginner (BG):** 3-day simple beginner full-body with a calorie factor of 26 kcal/kg.
 
-**New in v2.2.1:**
+**New in v2.2.4:**
 
-- Support for generating and visualizing weekly adherence progress charts via a new API endpoint `/progress/chart/<name>`.
+- **Workout logging** — `/workout` (POST) logs sessions with type, duration, notes, and individual exercises (name, sets, reps, weight).
+- **Workout history** — `/workout/<client_name>` (GET) returns full session history including exercises per session.
+- **Body metrics logging** — `/metrics` (POST) records weight, waist, and bodyfat % per date.
+- **Metrics history** — `/metrics/<client_name>` (GET) returns all logged body metrics.
+- **Weight trend chart** — `/metrics/chart/<client_name>` (GET) generates a weight-over-time PNG chart.
+- **BMI & risk info** — `/bmi/<client_name>` (GET) calculates BMI and returns category and risk note.
+- **Expanded programs** — Fat Loss now has 3-day and 5-day variants; Muscle Gain rebranded to PPL.
+- **Client goals** — `/client` (POST) now accepts `target_weight` and `target_adherence` fields.
+- **Height field** — Clients now store height (cm) used for BMI calculation.
+- **Schema migration** — `init_db()` auto-detects and migrates old v2.2.1 client tables to the new schema.
+
+**New in v2.2.1 (vs v2.1.2):**
+
+- Support for generating and visualizing weekly adherence progress charts via `/progress/chart/<name>`.
 - Integrated `matplotlib` as a core dependency for dynamic chart generation.
 
-**New in v2.1.2:**
+**Changes in v2.1.2 (vs v2.0.1):**
 
-- Descriptive program keys — programs are referenced as `"Fat Loss (FL)"`, `"Muscle Gain (MG)"`, `"Beginner (BG)"` instead of short codes
-- Simplified program data model — each program only stores its calorie `factor`
-- Cleaner web interface without gym capacity metrics
-
-**Removed in v2.1.2 (compared to v2.0.1):**
-
-- Short program code keys (`FL`, `MG`, `BG`) replaced by descriptive names
-- `GYM_METRICS` dictionary and its display on the index page
-- `program_name` field from client registration response (redundant with descriptive keys)
+- Descriptive program keys — programs referenced as full names instead of short codes.
+- Simplified program data model — each program only stores its calorie `factor`.
+- Cleaner web interface without gym capacity metrics.
 
 ---
 
@@ -58,7 +66,7 @@ ACEest Fitness (Version 2.2.1) is a functional fitness gym management system. Bu
 
 ```text
 .
-├── app.py                  # Core Flask web application
+├── app.py                  # Core Flask web application (v2.2.4)
 ├── requirements.txt        # Python dependencies
 ├── Dockerfile              # Docker image configuration
 ├── .github/
@@ -112,19 +120,16 @@ ACEest Fitness (Version 2.2.1) is a functional fitness gym management system. Bu
 
 ### Docker Setup
 
-Containerize the application using Docker to ensure a consistent environment across different machines.
-
 1. **Build the Docker Image:**
 
    ```bash
-   docker build -t aceest-fitness-app:2.2.1 .
+   docker build -t aceest-fitness-app:2.2.4 .
    ```
 
 2. **Run the Container (with Persistence):**
-   To ensure your client data persists after stopping the container, mount a local directory to `/app/data`:
 
    ```bash
-   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:2.2.1
+   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:2.2.4
    ```
 
 3. **Stop the Container:**
@@ -137,73 +142,70 @@ Containerize the application using Docker to ensure a consistent environment acr
 
 ## Testing
 
-The repository uses `pytest` for unit and integration testing. The test suite covers calorie calculations, program lookups, input validation, SQLite persistence, progress tracking, and API endpoint behavior.
-
-**Run tests locally:**
-
 ```bash
 pytest tests/ -v
 ```
 
-**Run tests inside the Docker container:**
-
 ```bash
-docker run --rm aceest-fitness-app:2.2.1 pytest tests/ -v
+docker run --rm aceest-fitness-app:2.2.4 pytest tests/ -v
 ```
 
 ---
 
 ## CI/CD Pipeline
 
-The project implements an automated Continuous Integration and Continuous Deployment (CI/CD) pipeline to ensure code quality and build stability.
-
 ### GitHub Actions
 
-The pipeline triggers automatically on every `push` and `pull_request` to the `main` branch.
+Triggers on every `push` and `pull_request` to `main`.
 
-**Pipeline Stages (`.github/workflows/main.yml`):**
-
-1. **Build & Lint:** Installs dependencies and checks for syntax errors using `flake8`.
-2. **Docker Build:** Validates the container build process by building the Docker image.
-3. **Test:** Executes the `pytest` suite inside the newly built Docker container to ensure behavior consistency.
+1. **Build & Lint** — Installs dependencies, runs `flake8`.
+2. **Docker Build** — Validates container build.
+3. **Test** — Runs `pytest` inside the built container.
 
 ### Jenkins
 
-Jenkins serves as an independent build server, acting as a secondary validation gate outside of the continuous integration environment.
-
-**Configuration Overview:**
-
 1. Configure a Freestyle project connected to your GitHub repository.
-2. Trigger builds using SCM polling or GitHub webhooks.
-3. Execute shell steps to build and validate:
+2. Trigger builds via SCM polling or GitHub webhooks.
+3. Shell steps:
    ```bash
    pip install -r requirements.txt
-   docker build -t aceest-fitness-app:2.2.1 .
+   docker build -t aceest-fitness-app:2.2.4 .
    ```
 
 ---
 
 ## API Reference
 
-The service provides a simple REST API to interact with the gym's database.
+### Existing Endpoints (updated)
 
-| Method | Endpoint           | Description                                                    | Example Payload/Query                                                     |
-| ------ | ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `GET`  | `/`                | Web interface listing gym programs and client list             | N/A                                                                       |
-| `GET`  | `/programs`        | Returns all available fitness programs as JSON                 | N/A                                                                       |
-| `POST` | `/client`          | Register or update a client with a program                     | `{"name": "Ravi", "program": "Fat Loss (FL)", "age": 30, "weight": 75}`  |
-| `GET`  | `/client/<name>`   | Load a client profile by name                                  | `/client/Ravi`                                                            |
-| `GET`  | `/clients`         | Returns the full client list as JSON                           | N/A                                                                       |
-| `POST` | `/progress`        | Save weekly adherence for a client                             | `{"client_name": "Ravi", "adherence": 85}`                                |
-| `GET`  | `/progress/<name>` | Returns all progress entries for a client                      | `/progress/Ravi`                                                          |
-| `GET`  | `/progress/chart/<name>`| Download a generated PNG progress chart for a client   | `/progress/chart/Ravi`                                                    |
-| `GET`  | `/calories`        | Calculate estimated daily calories based on weight and program | `?weight=80&program=Muscle Gain (MG)`                                     |
+| Method | Endpoint | Description | Example Payload/Query |
+|--------|----------|-------------|----------------------|
+| `GET`  | `/` | Web dashboard — programs and client list | N/A |
+| `GET`  | `/programs` | All programs as JSON | N/A |
+| `POST` | `/client` | Register/update client (now includes `height`, `target_weight`, `target_adherence`) | `{"name":"Ravi","program":"Fat Loss (FL) – 3 day","age":30,"weight":75,"height":175,"target_weight":68,"target_adherence":85}` |
+| `GET`  | `/client/<name>` | Load client profile | `/client/Ravi` |
+| `GET`  | `/clients` | Full client list | N/A |
+| `POST` | `/progress` | Save weekly adherence | `{"client_name":"Ravi","adherence":85}` |
+| `GET`  | `/progress/<name>` | All progress entries | `/progress/Ravi` |
+| `GET`  | `/progress/chart/<name>` | Weekly adherence PNG chart | `/progress/chart/Ravi` |
+| `GET`  | `/calories` | Calculate daily calorie estimate | `?weight=80&program=Muscle Gain (MG) – PPL` |
+
+### New Endpoints (v2.2.4)
+
+| Method | Endpoint | Description | Example Payload |
+|--------|----------|-------------|-----------------|
+| `POST` | `/workout` | Log a workout session with exercises | `{"client_name":"Ravi","date":"2025-04-01","workout_type":"Strength","duration_min":60,"notes":"PR on bench","exercises":[{"name":"Bench Press","sets":4,"reps":8,"weight":80}]}` |
+| `GET`  | `/workout/<name>` | Full workout history with exercises | `/workout/Ravi` |
+| `POST` | `/metrics` | Log body metrics (weight, waist, bodyfat) | `{"client_name":"Ravi","date":"2025-04-01","weight":74.5,"waist":82,"bodyfat":18.2}` |
+| `GET`  | `/metrics/<name>` | All body metric entries | `/metrics/Ravi` |
+| `GET`  | `/metrics/chart/<name>` | Weight trend PNG chart | `/metrics/chart/Ravi` |
+| `GET`  | `/bmi/<name>` | BMI value, category, and risk note | `/bmi/Ravi` |
 
 ---
 
 ## Legacy Versions
 
-The `versions/` directory contains legacy Tkinter scripts (e.g., `Aceestver-X.X.py`). These files represent earlier desktop iterations of the application. They are preserved for historical context and educational purposes but are no longer actively maintained or integrated into the current web service.
+The `versions/` directory contains legacy Tkinter scripts (`Aceestver-X.X.py`). These desktop iterations are preserved for historical context but are no longer actively maintained.
 
 ---
 
