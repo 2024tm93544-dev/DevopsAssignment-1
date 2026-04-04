@@ -27,20 +27,29 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness (Version 1.1.2) is a functional fitness gym management system. Building on v1.1, this release adds multi-client management, coach notes, weekly adherence tracking, CSV data export, and progress chart data. The service provides functionalities to view available fitness programs, register clients, recommend programs based on goals, and dynamically calculate daily calorie targets based on the client's weight and program.
+ACEest Fitness (Version 2.0.1) is a functional fitness gym management system. Building on v1.1.2, this release replaces the in-memory client store with a SQLite database, introduces client lookup and weekly progress tracking, and simplifies the program data model.
 
 **Available Programs:**
-- **FL (Fat Loss):** Focused on weight reduction with a mix of strength and conditioning.
-- **MG (Muscle Gain):** Hypertrophy and strength-focused routines.
-- **BG (Beginner):** Circuit training and technique mastery.
 
-**New in v1.1.2:**
-- In-memory client list with multi-client storage
-- Coach notes field per client
-- Weekly adherence (%) tracking per client
-- CSV export of client data (`GET /clients/export`)
-- Progress chart data endpoint (`GET /clients/chart-data`)
-- Client list table displayed on the web UI
+- **FL (Fat Loss):** Focused on weight reduction with a calorie factor of 22 kcal/kg.
+- **MG (Muscle Gain):** Hypertrophy and strength-focused routines with a calorie factor of 35 kcal/kg.
+- **BG (Beginner):** Circuit training and technique mastery with a calorie factor of 26 kcal/kg.
+
+**New in v2.0.1:**
+
+- SQLite database persistence (`clients` and `progress` tables)
+- Client lookup by name (`GET /client/<name>`)
+- Weekly adherence progress tracking (`POST /progress`, `GET /progress/<name>`)
+- Calorie target computed and stored on client registration
+- Upsert behavior — re-registering a client updates the existing record
+
+**Removed in v2.0.1 (compared to v1.1.2):**
+
+- In-memory client list replaced by SQLite
+- Coach notes field
+- CSV export endpoint (`/clients/export`)
+- Chart data endpoint (`/clients/chart-data`)
+- Goal-based program recommendation (`recommend_program`)
 
 ---
 
@@ -66,17 +75,20 @@ ACEest Fitness (Version 1.1.2) is a functional fitness gym management system. Bu
 
 ### Local Setup
 
-**Prerequisites:** 
+**Prerequisites:**
+
 - Python 3.11+
 - `pip` package manager
 
 1. **Clone the repository:**
+
    ```bash
    git clone https://github.com/<your-username>/aceest-devops.git
    cd aceest-devops
    ```
 
 2. **Create and activate a virtual environment:**
+
    ```bash
    python -m venv venv
    # On macOS/Linux:
@@ -86,6 +98,7 @@ ACEest Fitness (Version 1.1.2) is a functional fitness gym management system. Bu
    ```
 
 3. **Install dependencies:**
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -101,13 +114,16 @@ ACEest Fitness (Version 1.1.2) is a functional fitness gym management system. Bu
 Containerize the application using Docker to ensure a consistent environment across different machines.
 
 1. **Build the Docker Image:**
+
    ```bash
-   docker build -t aceest-fitness-app:1.1.2 .
+   docker build -t aceest-fitness-app:2.0.1 .
    ```
 
-2. **Run the Container:**
+2. **Run the Container (with Persistence):**
+   To ensure your client data persists after stopping the container, mount a local directory to `/app/data`:
+
    ```bash
-   docker run -d -p 5000:5000 --name aceest aceest-fitness-app:1.1.2
+   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:2.0.1
    ```
 
 3. **Stop the Container:**
@@ -120,16 +136,18 @@ Containerize the application using Docker to ensure a consistent environment acr
 
 ## Testing
 
-The repository uses `pytest` for unit and integration testing. The test suite covers calorie calculations, program lookups, input validation, and API endpoint behavior.
+The repository uses `pytest` for unit and integration testing. The test suite covers calorie calculations, program lookups, input validation, SQLite persistence, progress tracking, and API endpoint behavior.
 
 **Run tests locally:**
+
 ```bash
 pytest tests/ -v
 ```
 
 **Run tests inside the Docker container:**
+
 ```bash
-docker run --rm aceest-fitness-app:1.1.2 pytest tests/ -v
+docker run --rm aceest-fitness-app:2.0.1 pytest tests/ -v
 ```
 
 ---
@@ -140,9 +158,10 @@ The project implements an automated Continuous Integration and Continuous Deploy
 
 ### GitHub Actions
 
-The pipeline triggers automatically on every `push` and `pull_request` to the `main` branch. 
+The pipeline triggers automatically on every `push` and `pull_request` to the `main` branch.
 
 **Pipeline Stages (`.github/workflows/main.yml`):**
+
 1. **Build & Lint:** Installs dependencies and checks for syntax errors using `flake8`.
 2. **Docker Build:** Validates the container build process by building the Docker image.
 3. **Test:** Executes the `pytest` suite inside the newly built Docker container to ensure behavior consistency.
@@ -152,12 +171,13 @@ The pipeline triggers automatically on every `push` and `pull_request` to the `m
 Jenkins serves as an independent build server, acting as a secondary validation gate outside of the continuous integration environment.
 
 **Configuration Overview:**
+
 1. Configure a Freestyle project connected to your GitHub repository.
 2. Trigger builds using SCM polling or GitHub webhooks.
 3. Execute shell steps to build and validate:
    ```bash
    pip install -r requirements.txt
-   docker build -t aceest-fitness-app:1.1.2 .
+   docker build -t aceest-fitness-app:2.0.1 .
    ```
 
 ---
@@ -166,15 +186,16 @@ Jenkins serves as an independent build server, acting as a secondary validation 
 
 The service provides a simple REST API to interact with the gym's database.
 
-| Method | Endpoint | Description | Example Payload/Query |
-|---|---|---|---|
-| `GET` | `/` | Web interface listing gym programs, metrics, and client list | N/A |
-| `GET` | `/programs` | Returns all available fitness programs as JSON | N/A |
-| `POST` | `/client` | Register a client and get a program recommendation | `{"name": "John", "goal": "muscle gain", "age": 25, "weight": 80, "adherence": 85, "notes": "Focus on form"}` |
-| `GET` | `/clients` | Returns the full client list as JSON | N/A |
-| `GET` | `/clients/export` | Download the client list as a CSV file | N/A |
-| `GET` | `/clients/chart-data` | Returns adherence chart data (names + percentages) | N/A |
-| `GET` | `/calories` | Calculate estimated daily calories based on weight and program | `?weight=80&program=MG` |
+| Method | Endpoint           | Description                                                    | Example Payload/Query                                        |
+| ------ | ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------ |
+| `GET`  | `/`                | Web interface listing gym programs, metrics, and client list   | N/A                                                          |
+| `GET`  | `/programs`        | Returns all available fitness programs as JSON                 | N/A                                                          |
+| `POST` | `/client`          | Register or update a client with a program                     | `{"name": "Ravi", "program": "FL", "age": 30, "weight": 75}` |
+| `GET`  | `/client/<name>`   | Load a client profile by name                                  | `/client/Ravi`                                               |
+| `GET`  | `/clients`         | Returns the full client list as JSON                           | N/A                                                          |
+| `POST` | `/progress`        | Save weekly adherence for a client                             | `{"client_name": "Ravi", "adherence": 85}`                   |
+| `GET`  | `/progress/<name>` | Returns all progress entries for a client                      | `/progress/Ravi`                                             |
+| `GET`  | `/calories`        | Calculate estimated daily calories based on weight and program | `?weight=80&program=MG`                                      |
 
 ---
 
@@ -184,4 +205,4 @@ The `versions/` directory contains legacy Tkinter scripts (e.g., `Aceestver-X.X.
 
 ---
 
-*Developed for Introduction to DevOps, BITS Pilani (S2-25)*
+_Developed for Introduction to DevOps, BITS Pilani (S2-25)_
