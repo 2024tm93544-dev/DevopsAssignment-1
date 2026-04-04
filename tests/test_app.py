@@ -379,8 +379,9 @@ class TestV3Features:
         assert data["focus"] == "Conditioning"
         assert len(data["schedule"]) == 3
 
+
     def test_export_pdf(self, client):
-        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
+        client.post("/client", json={"name": "Ravi", "program": "Beginner (BG)"})
         response = client.get("/export_pdf/Ravi")
         assert response.status_code == 200
         assert response.headers["Content-Type"] == "application/pdf"
