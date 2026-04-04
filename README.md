@@ -27,29 +27,25 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness (Version 2.0.1) is a functional fitness gym management system. Building on v1.1.2, this release replaces the in-memory client store with a SQLite database, introduces client lookup and weekly progress tracking, and simplifies the program data model.
+ACEest Fitness (Version 2.1.2) is a functional fitness gym management system. Building on v2.0.1, this release updates the program data model to use descriptive program keys and removes the gym metrics display from the web interface.
 
 **Available Programs:**
 
-- **FL (Fat Loss):** Focused on weight reduction with a calorie factor of 22 kcal/kg.
-- **MG (Muscle Gain):** Hypertrophy and strength-focused routines with a calorie factor of 35 kcal/kg.
-- **BG (Beginner):** Circuit training and technique mastery with a calorie factor of 26 kcal/kg.
+- **Fat Loss (FL):** Focused on weight reduction with a calorie factor of 22 kcal/kg.
+- **Muscle Gain (MG):** Hypertrophy and strength-focused routines with a calorie factor of 35 kcal/kg.
+- **Beginner (BG):** Circuit training and technique mastery with a calorie factor of 26 kcal/kg.
 
-**New in v2.0.1:**
+**New in v2.1.2:**
 
-- SQLite database persistence (`clients` and `progress` tables)
-- Client lookup by name (`GET /client/<name>`)
-- Weekly adherence progress tracking (`POST /progress`, `GET /progress/<name>`)
-- Calorie target computed and stored on client registration
-- Upsert behavior — re-registering a client updates the existing record
+- Descriptive program keys — programs are referenced as `"Fat Loss (FL)"`, `"Muscle Gain (MG)"`, `"Beginner (BG)"` instead of short codes
+- Simplified program data model — each program only stores its calorie `factor`
+- Cleaner web interface without gym capacity metrics
 
-**Removed in v2.0.1 (compared to v1.1.2):**
+**Removed in v2.1.2 (compared to v2.0.1):**
 
-- In-memory client list replaced by SQLite
-- Coach notes field
-- CSV export endpoint (`/clients/export`)
-- Chart data endpoint (`/clients/chart-data`)
-- Goal-based program recommendation (`recommend_program`)
+- Short program code keys (`FL`, `MG`, `BG`) replaced by descriptive names
+- `GYM_METRICS` dictionary and its display on the index page
+- `program_name` field from client registration response (redundant with descriptive keys)
 
 ---
 
@@ -116,14 +112,14 @@ Containerize the application using Docker to ensure a consistent environment acr
 1. **Build the Docker Image:**
 
    ```bash
-   docker build -t aceest-fitness-app:2.0.1 .
+   docker build -t aceest-fitness-app:2.1.2 .
    ```
 
 2. **Run the Container (with Persistence):**
    To ensure your client data persists after stopping the container, mount a local directory to `/app/data`:
 
    ```bash
-   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:2.0.1
+   docker run -d -p 5000:5000 --name aceest -v <your-host-path>:/app/data aceest-fitness-app:2.1.2
    ```
 
 3. **Stop the Container:**
@@ -147,7 +143,7 @@ pytest tests/ -v
 **Run tests inside the Docker container:**
 
 ```bash
-docker run --rm aceest-fitness-app:2.0.1 pytest tests/ -v
+docker run --rm aceest-fitness-app:2.1.2 pytest tests/ -v
 ```
 
 ---
@@ -177,7 +173,7 @@ Jenkins serves as an independent build server, acting as a secondary validation 
 3. Execute shell steps to build and validate:
    ```bash
    pip install -r requirements.txt
-   docker build -t aceest-fitness-app:2.0.1 .
+   docker build -t aceest-fitness-app:2.1.2 .
    ```
 
 ---
@@ -186,16 +182,16 @@ Jenkins serves as an independent build server, acting as a secondary validation 
 
 The service provides a simple REST API to interact with the gym's database.
 
-| Method | Endpoint           | Description                                                    | Example Payload/Query                                        |
-| ------ | ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------ |
-| `GET`  | `/`                | Web interface listing gym programs, metrics, and client list   | N/A                                                          |
-| `GET`  | `/programs`        | Returns all available fitness programs as JSON                 | N/A                                                          |
-| `POST` | `/client`          | Register or update a client with a program                     | `{"name": "Ravi", "program": "FL", "age": 30, "weight": 75}` |
-| `GET`  | `/client/<name>`   | Load a client profile by name                                  | `/client/Ravi`                                               |
-| `GET`  | `/clients`         | Returns the full client list as JSON                           | N/A                                                          |
-| `POST` | `/progress`        | Save weekly adherence for a client                             | `{"client_name": "Ravi", "adherence": 85}`                   |
-| `GET`  | `/progress/<name>` | Returns all progress entries for a client                      | `/progress/Ravi`                                             |
-| `GET`  | `/calories`        | Calculate estimated daily calories based on weight and program | `?weight=80&program=MG`                                      |
+| Method | Endpoint           | Description                                                    | Example Payload/Query                                                     |
+| ------ | ------------------ | -------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `GET`  | `/`                | Web interface listing gym programs and client list             | N/A                                                                       |
+| `GET`  | `/programs`        | Returns all available fitness programs as JSON                 | N/A                                                                       |
+| `POST` | `/client`          | Register or update a client with a program                     | `{"name": "Ravi", "program": "Fat Loss (FL)", "age": 30, "weight": 75}`  |
+| `GET`  | `/client/<name>`   | Load a client profile by name                                  | `/client/Ravi`                                                            |
+| `GET`  | `/clients`         | Returns the full client list as JSON                           | N/A                                                                       |
+| `POST` | `/progress`        | Save weekly adherence for a client                             | `{"client_name": "Ravi", "adherence": 85}`                                |
+| `GET`  | `/progress/<name>` | Returns all progress entries for a client                      | `/progress/Ravi`                                                          |
+| `GET`  | `/calories`        | Calculate estimated daily calories based on weight and program | `?weight=80&program=Muscle Gain (MG)`                                     |
 
 ---
 
