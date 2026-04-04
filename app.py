@@ -1,13 +1,17 @@
 from flask import Flask, jsonify, request, render_template_string, Response
 import sqlite3
 import os
+import io
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from datetime import datetime
 
 app = Flask(__name__)
 
 DB_NAME = os.environ.get("ACEEST_DB", "aceest_fitness.db")
 
-# Core data store — translated from ACEest v2.1.2 Tkinter desktop application
+# Core data store — translated from ACEest v2.2.1 Tkinter desktop application
 PROGRAMS = {
     "Fat Loss (FL)": {"factor": 22},
     "Muscle Gain (MG)": {"factor": 35},
@@ -16,7 +20,7 @@ PROGRAMS = {
 
 
 # ---------------------------------------------------------------------------
-# Database helpers (mirrors v2.1.2 init_db)
+# Database helpers (mirrors v2.2.1 init_db)
 # ---------------------------------------------------------------------------
 
 def get_db():
@@ -97,7 +101,7 @@ INDEX_HTML = """
     </style>
 </head>
 <body>
-    <header><h1>ACEest Functional Fitness System v2.1.2</h1></header>
+    <header><h1>ACEest Functional Fitness System v2.2.1</h1></header>
     <main>
         <h2>Available Programs</h2>
         <div class="programs">
@@ -146,7 +150,7 @@ def get_programs():
 
 @app.route("/client", methods=["POST"])
 def register_client():
-    """Register or update a client (mirrors v2.1.2 save_client)."""
+    """Register or update a client (mirrors v2.2.1 save_client)."""
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
     age = data.get("age")
@@ -181,7 +185,7 @@ def register_client():
 
 @app.route("/client/<name>")
 def load_client(name):
-    """Load a single client by name (mirrors v2.1.2 load_client)."""
+    """Load a single client by name (mirrors v2.2.1 load_client)."""
     conn = get_db()
     row = conn.execute("SELECT * FROM clients WHERE name=?", (name,)).fetchone()
     conn.close()
@@ -210,7 +214,7 @@ def list_clients():
 
 @app.route("/progress", methods=["POST"])
 def save_progress():
-    """Save weekly adherence for a client (mirrors v2.1.2 save_progress)."""
+    """Save weekly adherence for a client (mirrors v2.2.1 save_progress)."""
     data = request.get_json(silent=True) or {}
     client_name = data.get("client_name", "").strip()
     adherence = data.get("adherence", 0)
@@ -244,6 +248,40 @@ def get_progress(client_name):
     ).fetchall()
     conn.close()
     return jsonify([dict(r) for r in rows])
+
+
+@app.route("/progress/chart/<client_name>")
+def progress_chart(client_name):
+    """Return a progress chart for a client (mirrors v2.2.1 show_progress_chart)."""
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT week, adherence FROM progress WHERE client_name=? ORDER BY id", 
+        (client_name,)
+    ).fetchall()
+    conn.close()
+
+    if not rows:
+        return jsonify({"error": f"No progress data available for client '{client_name}'"}), 404
+
+    weeks = [r["week"] for r in rows]
+    adherence = [r["adherence"] for r in rows]
+
+    plt.figure(figsize=(8, 4))
+    plt.plot(weeks, adherence, marker="o", linewidth=2)
+    plt.title(f"Weekly Adherence Progress – {client_name}")
+    plt.xlabel("Week")
+    plt.ylabel("Adherence (%)")
+    plt.ylim(0, 100)
+    plt.grid(True)
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    buf = io.BytesIO()
+    plt.savefig(buf, format="png")
+    buf.seek(0)
+    plt.close()
+
+    return Response(buf.getvalue(), mimetype="image/png")
 
 
 @app.route("/calories")
