@@ -1,5 +1,5 @@
 """
-Pytest suite for ACEest Fitness & Gym Flask API (v2.1.2).
+Pytest suite for ACEest Fitness & Gym Flask API (v2.2.1).
 Covers: utility functions, all route responses, client management
 with SQLite persistence, progress tracking, and edge-case validation.
 """
@@ -79,7 +79,7 @@ class TestIndexRoute:
 
     def test_version_in_page(self, client):
         response = client.get("/")
-        assert b"v2.1.2" in response.data
+        assert b"v2.2.1" in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -110,7 +110,7 @@ class TestProgramsRoute:
 
 
 # ---------------------------------------------------------------------------
-# Route tests — POST /client (v2.1.2: SQLite-backed, descriptive program key)
+# Route tests — POST /client (v2.2.1: SQLite-backed, descriptive program key)
 # ---------------------------------------------------------------------------
 
 class TestClientRoute:
@@ -161,7 +161,7 @@ class TestClientRoute:
         assert data["calories"] == int(80 * PROGRAMS["Muscle Gain (MG)"]["factor"])
 
     def test_client_stored_in_db(self, client):
-        """v2.1.2: clients are persisted in SQLite."""
+        """v2.2.1: clients are persisted in SQLite."""
         client.post("/client", json={"name": "Meena", "program": "Beginner (BG)", "weight": 60})
         response = client.get("/clients")
         data = response.get_json()
@@ -169,7 +169,7 @@ class TestClientRoute:
         assert data[0]["name"] == "Meena"
 
     def test_upsert_replaces_existing(self, client):
-        """v2.1.2: INSERT OR REPLACE should update an existing client."""
+        """v2.2.1: INSERT OR REPLACE should update an existing client."""
         client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL)", "weight": 75})
         client.post("/client", json={"name": "Ravi", "program": "Muscle Gain (MG)", "weight": 80})
         response = client.get("/clients")
@@ -179,7 +179,7 @@ class TestClientRoute:
 
 
 # ---------------------------------------------------------------------------
-# Route tests — GET /client/<name> (v2.1.2: load client)
+# Route tests — GET /client/<name> (v2.2.1: load client)
 # ---------------------------------------------------------------------------
 
 class TestLoadClient:
@@ -201,7 +201,7 @@ class TestLoadClient:
 
 
 # ---------------------------------------------------------------------------
-# Route tests — GET /clients (v2.1.2: SQLite-backed list)
+# Route tests — GET /clients (v2.2.1: SQLite-backed list)
 # ---------------------------------------------------------------------------
 
 class TestClientsListRoute:
@@ -222,7 +222,7 @@ class TestClientsListRoute:
 
 
 # ---------------------------------------------------------------------------
-# Route tests — POST /progress (v2.1.2: weekly adherence tracking)
+# Route tests — POST /progress (v2.2.1: weekly adherence tracking)
 # ---------------------------------------------------------------------------
 
 class TestProgressRoute:
@@ -255,6 +255,16 @@ class TestProgressRoute:
         response = client.get("/progress/Nobody")
         assert response.status_code == 200
         assert response.get_json() == []
+
+    def test_get_progress_chart(self, client):
+        client.post("/progress", json={"client_name": "Ravi", "adherence": 85})
+        response = client.get("/progress/chart/Ravi")
+        assert response.status_code == 200
+        assert response.headers["Content-Type"] == "image/png"
+
+    def test_get_progress_chart_empty(self, client):
+        response = client.get("/progress/chart/Nobody")
+        assert response.status_code == 404
 
 
 # ---------------------------------------------------------------------------
