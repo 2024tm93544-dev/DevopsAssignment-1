@@ -7,22 +7,16 @@ app = Flask(__name__)
 
 DB_NAME = os.environ.get("ACEEST_DB", "aceest_fitness.db")
 
-# Core data store — translated from ACEest v2.0.1 Tkinter desktop application
+# Core data store — translated from ACEest v2.1.2 Tkinter desktop application
 PROGRAMS = {
-    "FL": {"name": "Fat Loss", "factor": 22},
-    "MG": {"name": "Muscle Gain", "factor": 35},
-    "BG": {"name": "Beginner", "factor": 26},
-}
-
-GYM_METRICS = {
-    "capacity": 150,
-    "area_sqft": 10000,
-    "break_even_members": 250,
+    "Fat Loss (FL)": {"factor": 22},
+    "Muscle Gain (MG)": {"factor": 35},
+    "Beginner (BG)": {"factor": 26},
 }
 
 
 # ---------------------------------------------------------------------------
-# Database helpers (mirrors v2.0.1 init_db)
+# Database helpers (mirrors v2.1.2 init_db)
 # ---------------------------------------------------------------------------
 
 def get_db():
@@ -97,29 +91,22 @@ INDEX_HTML = """
         .card { background: #2b2b2b; border-radius: 8px; padding: 20px; min-width: 240px; flex: 1; }
         .card h2 { color: #d4af37; }
         pre { color: #ccc; white-space: pre-wrap; }
-        .metrics { background: #333; border-radius: 8px; padding: 15px; margin-top: 30px; font-family: Courier, monospace; }
         table { width: 100%; border-collapse: collapse; margin-top: 30px; }
         th, td { padding: 10px; text-align: left; border-bottom: 1px solid #444; }
         th { background: #333; color: #d4af37; }
     </style>
 </head>
 <body>
-    <header><h1>ACEest FUNCTIONAL FITNESS SYSTEM v2.0.1</h1></header>
+    <header><h1>ACEest Functional Fitness System v2.1.2</h1></header>
     <main>
         <h2>Available Programs</h2>
         <div class="programs">
             {% for key, p in programs.items() %}
             <div class="card">
-                <h2>{{ p.name }} ({{ key }})</h2>
+                <h2>{{ key }}</h2>
                 <p>Calorie Factor: {{ p.factor }} kcal/kg</p>
             </div>
             {% endfor %}
-        </div>
-        <div class="metrics">
-            <strong>Gym Metrics:</strong>
-            Capacity: {{ metrics.capacity }} users |
-            Area: {{ metrics.area_sqft }} sq ft |
-            Break-even: {{ metrics.break_even_members }} members
         </div>
         {% if clients %}
         <h2>Client List</h2>
@@ -149,8 +136,7 @@ def index():
     rows = conn.execute("SELECT name, age, weight, program, calories FROM clients").fetchall()
     conn.close()
     client_list = [dict(r) for r in rows]
-    return render_template_string(INDEX_HTML, programs=PROGRAMS,
-                                  metrics=GYM_METRICS, clients=client_list)
+    return render_template_string(INDEX_HTML, programs=PROGRAMS, clients=client_list)
 
 
 @app.route("/programs")
@@ -160,12 +146,12 @@ def get_programs():
 
 @app.route("/client", methods=["POST"])
 def register_client():
-    """Register or update a client (mirrors v2.0.1 save_client)."""
+    """Register or update a client (mirrors v2.1.2 save_client)."""
     data = request.get_json(silent=True) or {}
     name = data.get("name", "").strip()
     age = data.get("age")
     weight = data.get("weight")
-    program_key = data.get("program", "").strip().upper()
+    program_key = data.get("program", "").strip()
 
     if not name:
         return jsonify({"error": "name is required"}), 400
@@ -189,14 +175,13 @@ def register_client():
         "age": age,
         "weight_kg": weight,
         "program": program_key,
-        "program_name": PROGRAMS[program_key]["name"],
         "calories": calories,
     }), 201
 
 
 @app.route("/client/<name>")
 def load_client(name):
-    """Load a single client by name (mirrors v2.0.1 load_client)."""
+    """Load a single client by name (mirrors v2.1.2 load_client)."""
     conn = get_db()
     row = conn.execute("SELECT * FROM clients WHERE name=?", (name,)).fetchone()
     conn.close()
@@ -225,7 +210,7 @@ def list_clients():
 
 @app.route("/progress", methods=["POST"])
 def save_progress():
-    """Save weekly adherence for a client (mirrors v2.0.1 save_progress)."""
+    """Save weekly adherence for a client (mirrors v2.1.2 save_progress)."""
     data = request.get_json(silent=True) or {}
     client_name = data.get("client_name", "").strip()
     adherence = data.get("adherence", 0)
@@ -268,7 +253,7 @@ def calories():
     except ValueError:
         return jsonify({"error": "weight must be a number"}), 400
 
-    program_key = request.args.get("program", "").upper()
+    program_key = request.args.get("program", "")
 
     if weight <= 0:
         return jsonify({"error": "weight must be a positive number"}), 400
