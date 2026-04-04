@@ -1,560 +1,350 @@
 """
-ACEest Fitness & Gym Management Service — Test Suite v2.2.4
-============================================================
-Covers:
-  - Utility functions  : calculate_calories, calculate_bmi
-  - Programs           : GET /programs
-  - Index              : GET /
-  - Client CRUD        : POST /client, GET /client/<n>, GET /clients
-  - Progress           : POST /progress, GET /progress/<n>, GET /progress/chart/<n>
-  - Calories           : GET /calories
-  - Workout logging    : POST /workout, GET /workout/<n>         [NEW v2.2.4]
-  - Body metrics       : POST /metrics, GET /metrics/<n>         [NEW v2.2.4]
-  - Weight trend chart : GET /metrics/chart/<n>                  [NEW v2.2.4]
-  - BMI info           : GET /bmi/<n>                            [NEW v2.2.4]
+Pytest suite for ACEest Fitness & Gym Flask API (v3.0.1).
+Covers: utility functions, all route responses, client management
+with SQLite persistence, progress tracking, workout logging, metrics, BMI,
+and edge-case validation.
 """
 
-import os
-import tempfile
 import pytest
-
-# Import app after fixture sets up the temp DB per test
-import app as app_module
-from app import app, calculate_calories, calculate_bmi, PROGRAMS
-
+import os
+from app import app, calculate_calories, init_db, get_db, PROGRAMS, DB_NAME
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
+@pytest.fixture(autouse=True)
+def setup_test_db(tmp_path, monkeypatch):
+    """Use a temporary SQLite database for each test."""
+    test_db = str(tmp_path / "test.db")
+    monkeypatch.setattr("app.DB_NAME", test_db)
+    init_db()
+    yield
+    if os.path.exists(test_db):
+        os.remove(test_db)
+
+
 @pytest.fixture
 def client():
-    """Flask test client with a fresh isolated SQLite file per test.
-
-    Uses a real temp file (not :memory:) so all get_db() connections within
-    a test share the same on-disk state.
-    """
     app.config["TESTING"] = True
-
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        tmp_path = f.name
-
-    app_module.DB_NAME = tmp_path
-    app_module.init_db()
-
     with app.test_client() as c:
         yield c
 
-    os.unlink(tmp_path)
 
-
-def register(client, **kwargs):
-    """Helper: register a client with sensible defaults."""
-    payload = {
-        "name": "TestUser",
-        "age": 28,
-        "height": 175.0,
-        "weight": 75.0,
-        "program": "Fat Loss (FL) – 3 day",
-        "target_weight": 68.0,
-        "target_adherence": 85,
-    }
-    payload.update(kwargs)
-    return client.post("/client", json=payload)
-
-
-# ===========================================================================
-# 1. Utility — calculate_calories
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Unit tests — pure logic
+# ---------------------------------------------------------------------------
 
 class TestCalculateCalories:
-    def test_fat_loss_3day(self):
-        assert calculate_calories(75, "Fat Loss (FL) – 3 day") == 75 * 22
+    def test_fl_reference_weight(self):
+        """At the 80 kg reference, check against calorie factor."""
+        assert calculate_calories(80, "Fat Loss (FL) – 3 day") == int(80 * PROGRAMS["Fat Loss (FL) – 3 day"]["factor"])
 
-    def test_fat_loss_5day(self):
-        assert calculate_calories(80, "Fat Loss (FL) – 5 day") == 80 * 24
+    def test_mg_reference_weight(self):
+        assert calculate_calories(80, "Muscle Gain (MG) – PPL") == int(80 * PROGRAMS["Muscle Gain (MG) – PPL"]["factor"])
 
-    def test_muscle_gain_ppl(self):
-        assert calculate_calories(90, "Muscle Gain (MG) – PPL") == 90 * 35
+    def test_bg_reference_weight(self):
+        assert calculate_calories(80, "Beginner (BG)") == int(80 * PROGRAMS["Beginner (BG)"]["factor"])
 
-    def test_beginner(self):
-        assert calculate_calories(60, "Beginner (BG)") == 60 * 26
+    def test_heavier_client_gets_more_calories(self):
+        light = calculate_calories(60, "Muscle Gain (MG) – PPL")
+        heavy = calculate_calories(100, "Muscle Gain (MG) – PPL")
+        assert heavy > light
 
     def test_unknown_program_returns_none(self):
-        assert calculate_calories(70, "Fat Loss (FL)") is None  # old v2.2.1 key
+        assert calculate_calories(75, "XX") is None
 
-    def test_zero_weight(self):
-        assert calculate_calories(0, "Beginner (BG)") == 0
-
-    def test_fractional_weight(self):
-        result = calculate_calories(72.5, "Beginner (BG)")
-        assert result == int(72.5 * 26)
+    def test_result_is_integer(self):
+        result = calculate_calories(70, "Fat Loss (FL) – 3 day")
+        assert isinstance(result, int)
 
 
-# ===========================================================================
-# 2. Utility — calculate_bmi
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Route tests — GET /
+# ---------------------------------------------------------------------------
 
-class TestCalculateBmi:
-    def test_normal_bmi(self):
-        result = calculate_bmi(70, 175)
-        assert result is not None
-        assert result["bmi"] == round(70 / (1.75 ** 2), 1)
-        assert result["category"] == "Normal"
-
-    def test_underweight(self):
-        result = calculate_bmi(45, 175)
-        assert result["category"] == "Underweight"
-
-    def test_overweight(self):
-        result = calculate_bmi(85, 170)
-        assert result["category"] == "Overweight"
-
-    def test_obese(self):
-        result = calculate_bmi(120, 170)
-        assert result["category"] == "Obese"
-
-    def test_zero_height_returns_none(self):
-        assert calculate_bmi(70, 0) is None
-
-    def test_zero_weight_returns_none(self):
-        assert calculate_bmi(0, 175) is None
-
-    def test_none_inputs_return_none(self):
-        assert calculate_bmi(None, 175) is None
-        assert calculate_bmi(70, None) is None
-
-    def test_risk_field_present(self):
-        result = calculate_bmi(70, 175)
-        assert "risk" in result
-        assert len(result["risk"]) > 0
-
-
-# ===========================================================================
-# 3. GET /programs
-# ===========================================================================
-
-class TestPrograms:
+class TestIndexRoute:
     def test_returns_200(self, client):
-        r = client.get("/programs")
-        assert r.status_code == 200
+        response = client.get("/")
+        assert response.status_code == 200
 
-    def test_all_four_programs_present(self, client):
-        data = client.get("/programs").get_json()
-        assert "Fat Loss (FL) – 3 day" in data
-        assert "Fat Loss (FL) – 5 day" in data
-        assert "Muscle Gain (MG) – PPL" in data
-        assert "Beginner (BG)" in data
+    def test_contains_brand_name(self, client):
+        response = client.get("/")
+        assert b"ACEest" in response.data
 
-    def test_each_program_has_factor_and_desc(self, client):
-        data = client.get("/programs").get_json()
-        for key, prog in data.items():
-            assert "factor" in prog, f"Missing factor in {key}"
-            assert "desc" in prog, f"Missing desc in {key}"
+    def test_all_program_names_present(self, client):
+        response = client.get("/")
+        for key in PROGRAMS:
+            assert key.encode("utf-8") in response.data
 
-    def test_old_v221_keys_absent(self, client):
-        data = client.get("/programs").get_json()
-        assert "Fat Loss (FL)" not in data
-        assert "Muscle Gain (MG)" not in data
+    def test_version_in_page(self, client):
+        response = client.get("/")
+        assert b"v3.0.1" in response.data
 
 
-# ===========================================================================
-# 4. GET /
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Route tests — GET /programs
+# ---------------------------------------------------------------------------
 
-class TestIndex:
+class TestProgramsRoute:
     def test_returns_200(self, client):
-        r = client.get("/")
-        assert r.status_code == 200
+        response = client.get("/programs")
+        assert response.status_code == 200
 
-    def test_html_contains_v224(self, client):
-        r = client.get("/")
-        assert b"v2.2.4" in r.data
+    def test_returns_json(self, client):
+        response = client.get("/programs")
+        data = response.get_json()
+        assert isinstance(data, dict)
 
-    def test_html_lists_programs(self, client):
-        r = client.get("/")
-        assert b"Fat Loss" in r.data
-        assert b"Beginner" in r.data
+    def test_all_keys_present(self, client):
+        response = client.get("/programs")
+        data = response.get_json()
+        for key in ("Fat Loss (FL) – 3 day", "Muscle Gain (MG) – PPL", "Beginner (BG)"):
+            assert key in data
+
+    def test_program_has_factor_field(self, client):
+        response = client.get("/programs")
+        data = response.get_json()
+        for program in data.values():
+            assert "factor" in program
 
 
-# ===========================================================================
-# 5. POST /client  and  GET /client/<n>
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Route tests — POST /client (v3.0.1 updates)
+# ---------------------------------------------------------------------------
 
-class TestClientRegistration:
-    def test_register_returns_201(self, client):
-        r = register(client)
-        assert r.status_code == 201
+class TestClientRoute:
+    def test_valid_fat_loss_client(self, client):
+        response = client.post(
+            "/client",
+            json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day", "age": 30, "height": 175, "weight": 75, "target_weight": 70, "target_adherence": 80},
+            content_type="application/json",
+        )
+        assert response.status_code == 201
+        data = response.get_json()
+        assert data["program"] == "Fat Loss (FL) – 3 day"
+        assert data["client"] == "Ravi"
+        assert data["height_cm"] == 175
+        assert data["target_weight"] == 70
+        assert data["calories"] == int(75 * PROGRAMS["Fat Loss (FL) – 3 day"]["factor"])
 
-    def test_register_response_fields(self, client):
-        data = register(client).get_json()
-        assert data["client"] == "TestUser"
-        assert data["calories"] == int(75.0 * 22)
-        assert data["height_cm"] == 175.0
-        assert data["target_weight_kg"] == 68.0
-        assert data["target_adherence_pct"] == 85
+    def test_valid_muscle_gain_client(self, client):
+        response = client.post(
+            "/client",
+            json={"name": "Priya", "program": "Muscle Gain (MG) – PPL", "weight": 65},
+        )
+        assert response.status_code == 201
+        data = response.get_json()
+        assert data["program"] == "Muscle Gain (MG) – PPL"
 
-    def test_register_missing_name(self, client):
-        r = client.post("/client", json={"program": "Beginner (BG)"})
-        assert r.status_code == 400
-        assert "name" in r.get_json()["error"]
+    def test_missing_name_returns_400(self, client):
+        response = client.post("/client", json={"program": "Fat Loss (FL) – 3 day"})
+        assert response.status_code == 400
+        assert b"name" in response.data
 
-    def test_register_missing_program(self, client):
-        r = client.post("/client", json={"name": "NoProgram"})
-        assert r.status_code == 400
-        assert "program" in r.get_json()["error"]
+    def test_missing_program_returns_400(self, client):
+        response = client.post("/client", json={"name": "Anjali"})
+        assert response.status_code == 400
+        assert b"program" in response.data
 
-    def test_register_unknown_program(self, client):
-        r = client.post("/client", json={"name": "A", "program": "Unknown"})
-        assert r.status_code == 400
+    def test_unknown_program_returns_400(self, client):
+        response = client.post(
+            "/client", json={"name": "Test", "program": "XX"}
+        )
+        assert response.status_code == 400
 
-    def test_register_upsert(self, client):
-        register(client, weight=75.0)
-        r2 = register(client, weight=80.0)
-        assert r2.status_code == 201
-        assert r2.get_json()["weight_kg"] == 80.0
+    def test_response_includes_calories(self, client):
+        response = client.post(
+            "/client",
+            json={"name": "Kumar", "program": "Muscle Gain (MG) – PPL", "weight": 80},
+        )
+        data = response.get_json()
+        assert "calories" in data
+        assert data["calories"] == int(80 * PROGRAMS["Muscle Gain (MG) – PPL"]["factor"])
 
-    def test_load_client(self, client):
-        register(client)
-        r = client.get("/client/TestUser")
-        assert r.status_code == 200
-        data = r.get_json()
-        assert data["name"] == "TestUser"
-        assert data["height"] == 175.0
-        assert data["target_weight"] == 68.0
-        assert data["target_adherence"] == 85
-
-    def test_load_nonexistent_client(self, client):
-        r = client.get("/client/Ghost")
-        assert r.status_code == 404
-
-    def test_list_clients_empty(self, client):
-        r = client.get("/clients")
-        assert r.status_code == 200
-        assert r.get_json() == []
-
-    def test_list_clients_after_register(self, client):
-        register(client)
-        data = client.get("/clients").get_json()
+    def test_client_stored_in_db(self, client):
+        client.post("/client", json={"name": "Meena", "program": "Beginner (BG)", "weight": 60})
+        response = client.get("/clients")
+        data = response.get_json()
         assert len(data) == 1
-        assert data[0]["name"] == "TestUser"
+        assert data[0]["name"] == "Meena"
+
+    def test_upsert_replaces_existing(self, client):
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day", "weight": 75})
+        client.post("/client", json={"name": "Ravi", "program": "Muscle Gain (MG) – PPL", "weight": 80})
+        response = client.get("/clients")
+        data = response.get_json()
+        assert len(data) == 1
+        assert data[0]["program"] == "Muscle Gain (MG) – PPL"
 
 
-# ===========================================================================
-# 6. POST /progress  and  GET /progress/<n>
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Route tests — GET /client/<name>
+# ---------------------------------------------------------------------------
 
-class TestProgress:
-    def test_save_progress_returns_201(self, client):
-        r = client.post("/progress", json={"client_name": "TestUser", "adherence": 80})
-        assert r.status_code == 201
+class TestLoadClient:
+    def test_load_existing_client(self, client):
+        client.post("/client", json={
+            "name": "Ravi", "program": "Fat Loss (FL) – 3 day", "age": 30, "weight": 75, "height": 180
+        })
+        response = client.get("/client/Ravi")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data["name"] == "Ravi"
+        assert data["age"] == 30
+        assert data["height"] == 180
+        assert data["calories"] == int(75 * PROGRAMS["Fat Loss (FL) – 3 day"]["factor"])
 
-    def test_save_progress_response(self, client):
-        data = client.post(
-            "/progress", json={"client_name": "TestUser", "adherence": 75}
-        ).get_json()
-        assert data["client_name"] == "TestUser"
-        assert data["adherence"] == 75
+    def test_load_missing_client(self, client):
+        response = client.get("/client/Nobody")
+        assert response.status_code == 404
+        assert b"not found" in response.data
+
+
+# ---------------------------------------------------------------------------
+# Route tests — GET /clients
+# ---------------------------------------------------------------------------
+
+class TestClientsListRoute:
+    def test_empty_list(self, client):
+        response = client.get("/clients")
+        assert response.status_code == 200
+        assert response.get_json() == []
+
+    def test_lists_registered_clients(self, client):
+        client.post("/client", json={"name": "A", "program": "Fat Loss (FL) – 3 day", "weight": 70})
+        client.post("/client", json={"name": "B", "program": "Muscle Gain (MG) – PPL", "weight": 80})
+        response = client.get("/clients")
+        data = response.get_json()
+        assert len(data) == 2
+        names = [c["name"] for c in data]
+        assert "A" in names
+        assert "B" in names
+
+
+# ---------------------------------------------------------------------------
+# Route tests — POST /progress
+# ---------------------------------------------------------------------------
+
+class TestProgressRoute:
+    def test_save_progress(self, client):
+        response = client.post(
+            "/progress",
+            json={"client_name": "Ravi", "adherence": 85},
+        )
+        assert response.status_code == 201
+        data = response.get_json()
+        assert data["client_name"] == "Ravi"
+        assert data["adherence"] == 85
         assert "week" in data
 
-    def test_save_progress_missing_client_name(self, client):
-        r = client.post("/progress", json={"adherence": 90})
-        assert r.status_code == 400
+    def test_missing_client_name_returns_400(self, client):
+        response = client.post("/progress", json={"adherence": 50})
+        assert response.status_code == 400
+        assert b"client_name" in response.data
+
+    def test_get_progress(self, client):
+        client.post("/progress", json={"client_name": "Ravi", "adherence": 85})
+        response = client.get("/progress/Ravi")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert len(data) == 1
+        assert data[0]["client_name"] == "Ravi"
+        assert data[0]["adherence"] == 85
 
     def test_get_progress_empty(self, client):
-        r = client.get("/progress/Nobody")
-        assert r.status_code == 200
-        assert r.get_json() == []
+        response = client.get("/progress/Nobody")
+        assert response.status_code == 200
+        assert response.get_json() == []
 
-    def test_get_progress_after_save(self, client):
-        client.post("/progress", json={"client_name": "TestUser", "adherence": 70})
-        client.post("/progress", json={"client_name": "TestUser", "adherence": 90})
-        data = client.get("/progress/TestUser").get_json()
-        assert len(data) == 2
-        adherences = [d["adherence"] for d in data]
-        assert 70 in adherences
-        assert 90 in adherences
+    def test_get_progress_chart(self, client):
+        client.post("/progress", json={"client_name": "Ravi", "adherence": 85})
+        response = client.get("/progress/chart/Ravi")
+        assert response.status_code == 200
+        assert response.headers["Content-Type"] == "image/png"
 
 
-# ===========================================================================
-# 7. GET /progress/chart/<n>
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Route tests — GET /calories
+# ---------------------------------------------------------------------------
 
-class TestProgressChart:
-    def test_chart_no_data_returns_404(self, client):
-        r = client.get("/progress/chart/Nobody")
-        assert r.status_code == 404
-
-    def test_chart_returns_png(self, client):
-        client.post("/progress", json={"client_name": "ChartUser", "adherence": 80})
-        r = client.get("/progress/chart/ChartUser")
-        assert r.status_code == 200
-        assert r.content_type == "image/png"
-        assert len(r.data) > 0
-
-
-# ===========================================================================
-# 8. GET /calories
-# ===========================================================================
-
-class TestCaloriesEndpoint:
+class TestCaloriesRoute:
     def test_valid_request(self, client):
-        r = client.get("/calories?weight=80&program=Beginner (BG)")
-        assert r.status_code == 200
-        data = r.get_json()
-        assert data["estimated_daily_calories"] == int(80 * 26)
+        response = client.get("/calories?weight=75&program=Fat Loss (FL) – 3 day")
+        assert response.status_code == 200
+        data = response.get_json()
+        assert "estimated_daily_calories" in data
+        assert data["program"] == "Fat Loss (FL) – 3 day"
+        assert data["weight_kg"] == 75.0
 
-    def test_fat_loss_5day(self, client):
-        r = client.get("/calories?weight=70&program=Fat Loss (FL) – 5 day")
-        assert r.status_code == 200
-        assert r.get_json()["estimated_daily_calories"] == int(70 * 24)
+    def test_unknown_program_returns_404(self, client):
+        response = client.get("/calories?weight=75&program=XX")
+        assert response.status_code == 404
 
-    def test_missing_weight(self, client):
-        r = client.get("/calories?program=Beginner (BG)")
-        assert r.status_code == 400
+    def test_zero_weight_returns_400(self, client):
+        response = client.get("/calories?weight=0&program=Fat Loss (FL) – 3 day")
+        assert response.status_code == 400
 
-    def test_invalid_weight(self, client):
-        r = client.get("/calories?weight=abc&program=Beginner (BG)")
-        assert r.status_code == 400
+    def test_negative_weight_returns_400(self, client):
+        response = client.get("/calories?weight=-10&program=Fat Loss (FL) – 3 day")
+        assert response.status_code == 400
 
-    def test_unknown_program(self, client):
-        r = client.get("/calories?weight=70&program=NonExistent")
-        assert r.status_code == 404
-
-    def test_negative_weight(self, client):
-        r = client.get("/calories?weight=-10&program=Beginner (BG)")
-        assert r.status_code == 400
+    def test_mg_program(self, client):
+        response = client.get("/calories?weight=80&program=Muscle Gain (MG) – PPL")
+        data = response.get_json()
+        assert data["estimated_daily_calories"] == int(80 * PROGRAMS["Muscle Gain (MG) – PPL"]["factor"])
 
 
-# ===========================================================================
-# 9. POST /workout  and  GET /workout/<n>              [NEW v2.2.4]
-# ===========================================================================
+# ---------------------------------------------------------------------------
+# Route tests — Workouts & Metrics & BMI
+# ---------------------------------------------------------------------------
 
-class TestWorkout:
-    WORKOUT_PAYLOAD = {
-        "client_name": "WorkoutUser",
-        "date": "2025-04-01",
-        "workout_type": "Strength",
-        "duration_min": 60,
-        "notes": "Felt strong today",
-        "exercises": [
-            {"name": "Bench Press", "sets": 4, "reps": 8, "weight": 80.0},
-            {"name": "Squat", "sets": 4, "reps": 6, "weight": 100.0},
-        ],
-    }
-
-    def test_log_workout_returns_201(self, client):
-        r = client.post("/workout", json=self.WORKOUT_PAYLOAD)
-        assert r.status_code == 201
-
-    def test_log_workout_response_fields(self, client):
-        data = client.post("/workout", json=self.WORKOUT_PAYLOAD).get_json()
-        assert data["client_name"] == "WorkoutUser"
-        assert data["workout_type"] == "Strength"
-        assert data["duration_min"] == 60
-        assert "Bench Press" in data["exercises_saved"]
-        assert "Squat" in data["exercises_saved"]
+class TestV3Features:
+    def test_log_workout(self, client):
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
+        response = client.post("/workouts", json={
+            "client_name": "Ravi",
+            "workout_type": "Strength",
+            "duration_min": 45,
+            "exercise_name": "Bench Press",
+            "sets": 3,
+            "reps": 10,
+            "exercise_weight": 60
+        })
+        assert response.status_code == 201
+        data = response.get_json()
         assert "workout_id" in data
 
-    def test_log_workout_missing_client_name(self, client):
-        r = client.post("/workout", json={"workout_type": "Strength"})
-        assert r.status_code == 400
+        history = client.get("/workouts/Ravi")
+        assert len(history.get_json()) == 1
+        assert history.get_json()[0]["workout_type"] == "Strength"
 
-    def test_log_workout_invalid_type(self, client):
-        r = client.post("/workout", json={
-            "client_name": "WorkoutUser",
-            "workout_type": "InvalidType",
+    def test_log_metrics(self, client):
+        client.post("/client", json={"name": "Ravi", "program": "Fat Loss (FL) – 3 day"})
+        response = client.post("/metrics", json={
+            "client_name": "Ravi",
+            "weight": 76,
+            "bodyfat": 15
         })
-        assert r.status_code == 400
+        assert response.status_code == 201
 
-    def test_log_workout_no_exercises(self, client):
-        r = client.post("/workout", json={
-            "client_name": "WorkoutUser",
-            "workout_type": "Mobility",
-            "duration_min": 30,
-        })
-        assert r.status_code == 201
-        assert r.get_json()["exercises_saved"] == []
+        # Should update client weight implicitly
+        c_response = client.get("/client/Ravi")
+        assert c_response.get_json()["weight"] == 76
 
-    def test_get_workouts_empty(self, client):
-        r = client.get("/workout/NoOne")
-        assert r.status_code == 200
-        assert r.get_json() == []
+        history = client.get("/metrics/Ravi")
+        assert len(history.get_json()) == 1
+        assert history.get_json()[0]["weight"] == 76
 
-    def test_get_workouts_returns_history(self, client):
-        client.post("/workout", json=self.WORKOUT_PAYLOAD)
-        data = client.get("/workout/WorkoutUser").get_json()
-        assert len(data) == 1
-        assert data[0]["workout_type"] == "Strength"
-        assert len(data[0]["exercises"]) == 2
+    def test_metrics_chart(self, client):
+        client.post("/metrics", json={"client_name": "Ravi", "weight": 76})
+        response = client.get("/metrics/chart/Ravi")
+        assert response.status_code == 200
+        assert response.headers["Content-Type"] == "image/png"
 
-    def test_get_workouts_exercises_fields(self, client):
-        client.post("/workout", json=self.WORKOUT_PAYLOAD)
-        exercises = client.get("/workout/WorkoutUser").get_json()[0]["exercises"]
-        names = [e["name"] for e in exercises]
-        assert "Bench Press" in names
-        assert "Squat" in names
-
-    def test_get_workouts_multiple_sessions(self, client):
-        client.post("/workout", json={**self.WORKOUT_PAYLOAD, "date": "2025-04-01"})
-        client.post("/workout", json={**self.WORKOUT_PAYLOAD, "date": "2025-04-08"})
-        data = client.get("/workout/WorkoutUser").get_json()
-        assert len(data) == 2
-
-    def test_valid_workout_types(self, client):
-        for wtype in ["Strength", "Hypertrophy", "Conditioning", "Mixed", "Mobility"]:
-            r = client.post("/workout", json={
-                "client_name": "WorkoutUser",
-                "workout_type": wtype,
-            })
-            assert r.status_code == 201, f"Failed for workout_type={wtype}"
-
-
-# ===========================================================================
-# 10. POST /metrics  and  GET /metrics/<n>             [NEW v2.2.4]
-# ===========================================================================
-
-class TestMetrics:
-    METRICS_PAYLOAD = {
-        "client_name": "MetricsUser",
-        "date": "2025-04-01",
-        "weight": 74.5,
-        "waist": 82.0,
-        "bodyfat": 18.2,
-    }
-
-    def test_log_metrics_returns_201(self, client):
-        r = client.post("/metrics", json=self.METRICS_PAYLOAD)
-        assert r.status_code == 201
-
-    def test_log_metrics_response_fields(self, client):
-        data = client.post("/metrics", json=self.METRICS_PAYLOAD).get_json()
-        assert data["client_name"] == "MetricsUser"
-        assert data["weight_kg"] == 74.5
-        assert data["waist_cm"] == 82.0
-        assert data["bodyfat_pct"] == 18.2
-        assert data["date"] == "2025-04-01"
-
-    def test_log_metrics_missing_client_name(self, client):
-        r = client.post("/metrics", json={"date": "2025-04-01", "weight": 70})
-        assert r.status_code == 400
-
-    def test_log_metrics_partial_fields_allowed(self, client):
-        # weight only — waist and bodyfat can be null
-        r = client.post("/metrics", json={
-            "client_name": "MetricsUser",
-            "date": "2025-04-01",
-            "weight": 74.5,
-        })
-        assert r.status_code == 201
-
-    def test_get_metrics_empty(self, client):
-        r = client.get("/metrics/NoOne")
-        assert r.status_code == 200
-        assert r.get_json() == []
-
-    def test_get_metrics_returns_entries(self, client):
-        client.post("/metrics", json=self.METRICS_PAYLOAD)
-        data = client.get("/metrics/MetricsUser").get_json()
-        assert len(data) == 1
-        assert data[0]["weight"] == 74.5
-
-    def test_get_metrics_multiple_entries(self, client):
-        client.post("/metrics", json={**self.METRICS_PAYLOAD, "date": "2025-04-01", "weight": 74.5})
-        client.post("/metrics", json={**self.METRICS_PAYLOAD, "date": "2025-04-08", "weight": 74.0})
-        data = client.get("/metrics/MetricsUser").get_json()
-        assert len(data) == 2
-
-    def test_get_metrics_ordered_by_date_desc(self, client):
-        client.post("/metrics", json={**self.METRICS_PAYLOAD, "date": "2025-04-01"})
-        client.post("/metrics", json={**self.METRICS_PAYLOAD, "date": "2025-04-08"})
-        data = client.get("/metrics/MetricsUser").get_json()
-        assert data[0]["date"] == "2025-04-08"  # most recent first
-
-
-# ===========================================================================
-# 11. GET /metrics/chart/<n>                           [NEW v2.2.4]
-# ===========================================================================
-
-class TestWeightTrendChart:
-    def test_no_data_returns_404(self, client):
-        r = client.get("/metrics/chart/Nobody")
-        assert r.status_code == 404
-
-    def test_returns_png(self, client):
-        client.post("/metrics", json={
-            "client_name": "ChartUser",
-            "date": "2025-04-01",
-            "weight": 74.5,
-        })
-        r = client.get("/metrics/chart/ChartUser")
-        assert r.status_code == 200
-        assert r.content_type == "image/png"
-        assert len(r.data) > 0
-
-    def test_client_with_null_weight_excluded(self, client):
-        # Only null weight entries — should 404
-        client.post("/metrics", json={
-            "client_name": "NullWeightUser",
-            "date": "2025-04-01",
-            "waist": 80.0,
-        })
-        r = client.get("/metrics/chart/NullWeightUser")
-        assert r.status_code == 404
-
-
-# ===========================================================================
-# 12. GET /bmi/<n>                                     [NEW v2.2.4]
-# ===========================================================================
-
-class TestBmi:
-    def test_bmi_for_registered_client(self, client):
-        register(client, weight=70.0, height=175.0)
-        r = client.get("/bmi/TestUser")
-        assert r.status_code == 200
-        data = r.get_json()
-        assert data["client"] == "TestUser"
+    def test_bmi_calculator(self, client):
+        response = client.get("/bmi?height=180&weight=80")
+        assert response.status_code == 200
+        data = response.get_json()
         assert "bmi" in data
-        assert "category" in data
-        assert "risk" in data
-
-    def test_bmi_correct_value(self, client):
-        register(client, weight=70.0, height=175.0)
-        data = client.get("/bmi/TestUser").get_json()
-        expected_bmi = round(70.0 / (1.75 ** 2), 1)
-        assert data["bmi"] == expected_bmi
-
-    def test_bmi_nonexistent_client(self, client):
-        r = client.get("/bmi/Ghost")
-        assert r.status_code == 404
-
-    def test_bmi_missing_height_returns_400(self, client):
-        # Register without height
-        client.post("/client", json={
-            "name": "NoHeight",
-            "program": "Beginner (BG)",
-            "weight": 70.0,
-        })
-        r = client.get("/bmi/NoHeight")
-        assert r.status_code == 400
-
-    def test_bmi_categories(self, client):
-        cases = [
-            (45.0, 175.0, "Underweight"),
-            (70.0, 175.0, "Normal"),
-            (85.0, 170.0, "Overweight"),
-            (120.0, 170.0, "Obese"),
-        ]
-        for i, (weight, height, expected_category) in enumerate(cases):
-            name = f"BmiUser{i}"
-            client.post("/client", json={
-                "name": name,
-                "program": "Beginner (BG)",
-                "weight": weight,
-                "height": height,
-            })
-            data = client.get(f"/bmi/{name}").get_json()
-            assert data["category"] == expected_category, (
-                f"Expected {expected_category} for weight={weight}, height={height}, "
-                f"got {data['category']}"
-            )
+        assert data["bmi"] == round(80 / (1.8 * 1.8), 1)
