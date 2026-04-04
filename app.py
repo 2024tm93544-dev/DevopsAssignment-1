@@ -629,7 +629,7 @@ def export_pdf(client_name):
     pdf.cell(0, 10, f"Program: {row['program']}", ln=True)
     pdf.cell(0, 10, f"Membership Expiry: {row['membership_expiry'] or '-'}", ln=True)
     
-    pdf_bytes = pdf.output(dest='S').encode('latin1', errors='replace')
+    pdf_bytes = pdf.output(dest='S').encode('latin1')
     
     return Response(
         pdf_bytes,
