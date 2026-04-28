@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aceest-nginx-proxy
+  namespace: default
+  labels:
+    app: aceest-nginx-proxy
+    strategy: shadow
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: aceest-nginx-proxy
+  template:
+    metadata:
+      labels:
+        app: aceest-nginx-proxy
+        strategy: shadow
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: nginx
+          image: nginx:alpine
+          ports:
+            - containerPort: 5000
+          volumeMounts:
+            - name: nginx-config
+              mountPath: /etc/nginx/nginx.conf
+              subPath: nginx.conf
+      volumes:
+        - name: nginx-config
+          configMap:
+            name: aceest-nginx-config

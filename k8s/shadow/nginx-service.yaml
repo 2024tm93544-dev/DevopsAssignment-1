@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aceest-nginx-proxy
+  namespace: default
+spec:
+  type: ClusterIP
+  selector:
+    app: aceest-nginx-proxy
+  ports:
+    - port: 5000
+      targetPort: 5000
