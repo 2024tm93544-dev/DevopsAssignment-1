@@ -1,8 +1,6 @@
 name: ACEest CI/CD Pipeline
 
 on:
-  push:
-    branches: ["main"]
   pull_request:
     branches: ["main"]
 
@@ -36,7 +34,24 @@ jobs:
         run: |
           docker build -t aceest-gym:${{ github.sha }} -t aceest-gym:latest .
 
-      - name: Stage 3 - Automated Testing inside Docker
-        # We run pytest inside the container we just built to ensure the containerized environment is stable
+      - name: Stage 3 - Automated Testing
         run: |
-          docker run --rm aceest-gym:${{ github.sha }} pytest tests/ -v
+          PYTHONPATH=. pytest tests/ -v --cov=. --cov-report=xml
+
+      - name: Stage 4 - SonarCloud Code Quality Analysis
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+
+      - name: Stage 5 - Push to DockerHub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Stage 5 - Tag and Push
+        run: |
+          docker tag aceest-gym:${{ github.sha }} naveen3521/aceest-fitness-app:gha-${{ github.run_number }}
+          docker tag aceest-gym:${{ github.sha }} naveen3521/aceest-fitness-app:latest-gha
+          docker push --all-tags naveen3521/aceest-fitness-app
