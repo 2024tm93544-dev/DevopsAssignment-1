@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: blue-green-state
+  namespace: default
+data:
+  active-color: "blue"
+  previous-color: "none"
+  active-image: "naveen3521/aceest-fitness-app:latest"
+  last-switched: "never"

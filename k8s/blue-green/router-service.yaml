@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: aceest-fitness-app-router
+  namespace: default
+  annotations:
+    deployment/active-color: "blue"
+    deployment/previous-color: "none"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 5000
+      targetPort: 5000
