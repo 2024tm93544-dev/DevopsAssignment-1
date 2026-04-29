@@ -27,7 +27,7 @@ A comprehensive Flask-based gym management web service. This repository demonstr
 
 ## Overview
 
-ACEest Fitness (Version 3.2.4) is a functional fitness gym management system. Building on previous versions, this release introduces comprehensive workout logging, body metrics tracking, user authentication, a BMI calculator, automated AI program generation, and PDF report creation .
+ACEest Fitness (Version 3.2.4) is a functional fitness gym management system. Building on previous versions, this release introduces comprehensive workout logging, body metrics tracking, user authentication, a BMI calculator, automated AI program generation, and PDF report creation.
 
 **Available Programs:**
 

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aceest-nginx-config
+  namespace: default
+data:
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 5000;
+
+        location / {
+          set $target "http://aceest-fitness-app.a-site.svc.cluster.local:5000";
+
+          if ($cookie_ab_variant = "b") {
+            set $target "http://aceest-fitness-app.b-site.svc.cluster.local:5000";
+          }
+          if ($http_x_ab_variant = "b") {
+            set $target "http://aceest-fitness-app.b-site.svc.cluster.local:5000";
+          }
+
+          proxy_pass $target;
+        }
+      }
+    }
