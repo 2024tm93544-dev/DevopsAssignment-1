@@ -1,28 +1,23 @@
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
 FROM python:3.11-slim
 
-# Set working directory
 WORKDIR /app
-
-# Copy requirements first for better cache utilization
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-# Copy application files and test suite
+COPY --from=builder /install /usr/local
 COPY app.py .
-COPY tests/ tests/
 
-# Create a data directory for the database and set as volume
 RUN mkdir -p /app/data
+
 ENV ACEEST_DB=/app/data/aceest_fitness.db
-VOLUME /app/data
-
-# Expose port 5000 for Flask
-EXPOSE 5000
-
-# Set environment variables
 ENV FLASK_APP=app.py
 ENV FLASK_RUN_HOST=0.0.0.0
 ENV PYTHONPATH=/app
 
-# Command to run the application
+VOLUME /app/data
+EXPOSE 5000
+
 CMD ["python", "app.py"]
